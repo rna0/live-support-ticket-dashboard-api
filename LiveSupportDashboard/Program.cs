@@ -1,6 +1,9 @@
 using System.Net.Mime;
 using Microsoft.AspNetCore.Mvc;
 using LiveSupportDashboard.Infrastructure;
+using LiveSupportDashboard.Hubs;
+using LiveSupportDashboard.Services.Interfaces;
+using LiveSupportDashboard.Services.Implementations;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -9,6 +12,32 @@ var connString = builder.Configuration.GetConnectionString("DefaultConnection")
 
 builder.Services.AddNpgsqlDataSource(connString); // pooled data source for ADO.NET
 builder.Services.AddScoped<ITicketRepository, TicketRepository>();
+
+// SignalR services
+builder.Services.AddSignalR(options =>
+{
+    options.EnableDetailedErrors = builder.Environment.IsDevelopment();
+    options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+    options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
+});
+
+// Notification service
+builder.Services.AddScoped<INotificationService, SignalRNotificationService>();
+
+// CORS for SignalR
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("TicketaAppPolicy", policy =>
+    {
+        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
+
+        if (allowedOrigins != null)
+            policy.WithOrigins(allowedOrigins)
+                .AllowAnyMethod()
+                .AllowAnyHeader()
+                .AllowCredentials();
+    });
+});
 
 builder.Services.AddControllers()
     .ConfigureApiBehaviorOptions(o =>
@@ -36,6 +65,10 @@ builder.Services.AddSwaggerGen();
 var app = builder.Build();
 
 app.UseExceptionHandler();
+
+// CORS must be before SignalR
+app.UseCors("TicketaAppPolicy");
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -44,5 +77,8 @@ if (app.Environment.IsDevelopment())
 
 app.MapHealthChecks("/health");
 app.MapControllers();
+
+// SignalR Hub mapping
+app.MapHub<LiveSupportHub>("/hubs/livesupport");
 
 app.Run();
