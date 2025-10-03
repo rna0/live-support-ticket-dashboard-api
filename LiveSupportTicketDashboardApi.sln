@@ -2,6 +2,8 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LiveSupportDashboard", "LiveSupportDashboard\LiveSupportDashboard.csproj", "{1C9D6DAB-BB3F-4E02-B6B9-989B809AB263}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LiveSupportDashboard.Domain", "LiveSupportDashboard.Domain\LiveSupportDashboard.Domain.csproj", "{94F13E93-FB88-495B-B274-01E72752FD58}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -12,5 +14,9 @@ Global
 		{1C9D6DAB-BB3F-4E02-B6B9-989B809AB263}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1C9D6DAB-BB3F-4E02-B6B9-989B809AB263}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{1C9D6DAB-BB3F-4E02-B6B9-989B809AB263}.Release|Any CPU.Build.0 = Release|Any CPU
+		{94F13E93-FB88-495B-B274-01E72752FD58}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{94F13E93-FB88-495B-B274-01E72752FD58}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{94F13E93-FB88-495B-B274-01E72752FD58}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{94F13E93-FB88-495B-B274-01E72752FD58}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
