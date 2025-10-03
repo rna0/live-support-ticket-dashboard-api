@@ -1,6 +1,6 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "live-support-ticket-dashboard-api", "live-support-ticket-dashboard-api\live-support-ticket-dashboard-api.csproj", "{1C9D6DAB-BB3F-4E02-B6B9-989B809AB263}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LiveSupportDashboard", "LiveSupportDashboard\LiveSupportDashboard.csproj", "{1C9D6DAB-BB3F-4E02-B6B9-989B809AB263}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
