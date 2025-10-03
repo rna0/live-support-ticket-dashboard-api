@@ -1,6 +1,6 @@
-﻿using Microsoft.AspNetCore.SignalR;
-using LiveSupportDashboard.Domain;
+﻿using LiveSupportDashboard.Domain;
 using LiveSupportDashboard.Domain.Enums;
+using Microsoft.AspNetCore.SignalR;
 
 namespace LiveSupportDashboard.Hubs
 {
@@ -28,12 +28,14 @@ namespace LiveSupportDashboard.Hubs
 
         public async Task NotifyTicketStatusChanged(int ticketId, TicketStatus oldStatus, TicketStatus newStatus)
         {
-            await Clients.All.SendAsync("TicketStatusChanged", new { TicketId = ticketId, OldStatus = oldStatus, NewStatus = newStatus });
+            await Clients.All.SendAsync("TicketStatusChanged",
+                new { TicketId = ticketId, OldStatus = oldStatus, NewStatus = newStatus });
         }
 
         public async Task NotifyTicketAssigned(int ticketId, int agentId, string agentName)
         {
-            await Clients.All.SendAsync("TicketAssigned", new { TicketId = ticketId, AgentId = agentId, AgentName = agentName });
+            await Clients.All.SendAsync("TicketAssigned",
+                new { TicketId = ticketId, AgentId = agentId, AgentName = agentName });
         }
 
         public override async Task OnConnectedAsync()

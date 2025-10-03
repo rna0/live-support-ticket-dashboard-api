@@ -1,7 +1,7 @@
-﻿using Npgsql;
-using LiveSupportDashboard.Domain;
+﻿using LiveSupportDashboard.Domain;
 using LiveSupportDashboard.Domain.Contracts;
 using LiveSupportDashboard.Domain.Enums;
+using Npgsql;
 
 namespace LiveSupportDashboard.Infrastructure;
 

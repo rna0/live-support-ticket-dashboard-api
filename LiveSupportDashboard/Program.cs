@@ -1,9 +1,9 @@
 using System.Net.Mime;
-using Microsoft.AspNetCore.Mvc;
-using LiveSupportDashboard.Infrastructure;
 using LiveSupportDashboard.Hubs;
-using LiveSupportDashboard.Services.Interfaces;
+using LiveSupportDashboard.Infrastructure;
 using LiveSupportDashboard.Services.Implementations;
+using LiveSupportDashboard.Services.Interfaces;
+using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,7 +27,7 @@ builder.Services.AddScoped<INotificationService, SignalRNotificationService>();
 // CORS for SignalR
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("TicketaAppPolicy", policy =>
+    options.AddPolicy("TicketAppPolicy", policy =>
     {
         var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
 
@@ -67,7 +67,7 @@ var app = builder.Build();
 app.UseExceptionHandler();
 
 // CORS must be before SignalR
-app.UseCors("TicketaAppPolicy");
+app.UseCors("TicketAppPolicy");
 
 if (app.Environment.IsDevelopment())
 {

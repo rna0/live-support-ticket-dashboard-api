@@ -1,8 +1,8 @@
-﻿using Microsoft.AspNetCore.SignalR;
-using LiveSupportDashboard.Domain;
+﻿using LiveSupportDashboard.Domain;
 using LiveSupportDashboard.Domain.Enums;
 using LiveSupportDashboard.Hubs;
 using LiveSupportDashboard.Services.Interfaces;
+using Microsoft.AspNetCore.SignalR;
 
 namespace LiveSupportDashboard.Services.Implementations
 {

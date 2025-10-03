@@ -1,8 +1,8 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using LiveSupportDashboard.Infrastructure;
-using LiveSupportDashboard.Domain;
+﻿using LiveSupportDashboard.Domain;
 using LiveSupportDashboard.Domain.Contracts;
 using LiveSupportDashboard.Domain.Enums;
+using LiveSupportDashboard.Infrastructure;
+using Microsoft.AspNetCore.Mvc;
 
 namespace LiveSupportDashboard.Controllers;
 
@@ -96,7 +96,8 @@ public sealed class TicketsController(ITicketRepository ticketRepository) : Cont
     [HttpPost]
     [ProducesResponseType(StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> CreateTicket([FromBody] CreateTicketRequest request, CancellationToken ct = default)
+    public async Task<IActionResult> CreateTicket([FromBody] CreateTicketRequest request,
+        CancellationToken ct = default)
     {
         if (!ModelState.IsValid)
         {
