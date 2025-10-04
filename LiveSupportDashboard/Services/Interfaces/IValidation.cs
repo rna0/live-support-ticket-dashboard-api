@@ -7,8 +7,8 @@
 
     public class ValidationResult
     {
-        public bool IsValid { get; init; }
-        public List<ValidationError> Errors { get; init; } = new();
+        public bool IsValid { get; private init; }
+        public List<ValidationError> Errors { get; private init; } = [];
 
         public static ValidationResult Success() => new() { IsValid = true };
 

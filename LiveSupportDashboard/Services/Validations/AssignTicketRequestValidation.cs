@@ -1,23 +1,22 @@
 ﻿using LiveSupportDashboard.Domain.Contracts;
+using LiveSupportDashboard.Services.Interfaces;
 
 namespace LiveSupportDashboard.Services.Validations;
 
-public class AssignTicketRequestValidation : BaseValidation<AssignTicketRequest>
+public class AssignTicketRequestValidation(IValidation<Guid?> agentAssignmentValidator)
+    : BaseValidation<AssignTicketRequest>
 {
     protected override async Task ValidateCore(AssignTicketRequest request, CancellationToken cancellationToken)
     {
-        // Agent ID validation
-        if (!IsValidGuid(request.AgentId))
+        // Delegate GUID/existence checks to agent assignment validator
+        var result = await agentAssignmentValidator.ValidateAsync(request.AgentId, cancellationToken);
+        if (!result.IsValid)
         {
-            AddError(nameof(request.AgentId), "Agent ID is required and must be a valid GUID", "INVALID_AGENT_ID");
+            foreach (var err in result.Errors)
+            {
+                AddError(nameof(request.AgentId), err.Message, err.Code);
+            }
         }
-
-        // Future: Check if agent exists
-        // var agentExists = await _agentRepository.ExistsAsync(request.AgentId, cancellationToken);
-        // if (!agentExists)
-        // {
-        //     AddError(nameof(request.AgentId), "Agent not found", "AGENT_NOT_FOUND");
-        // }
 
         await Task.CompletedTask;
     }

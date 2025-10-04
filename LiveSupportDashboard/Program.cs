@@ -3,6 +3,7 @@ using LiveSupportDashboard.Domain;
 using LiveSupportDashboard.Domain.Contracts;
 using LiveSupportDashboard.Hubs;
 using LiveSupportDashboard.Infrastructure;
+using LiveSupportDashboard.Infrastructure.Services;
 using LiveSupportDashboard.Services.Implementations;
 using LiveSupportDashboard.Services.Interfaces;
 using LiveSupportDashboard.Services.Validations;
@@ -16,12 +17,17 @@ var connString = builder.Configuration.GetConnectionString("DefaultConnection")
 
 builder.Services.AddNpgsqlDataSource(connString); // pooled data source for ADO.NET
 builder.Services.AddScoped<ITicketRepository, TicketRepository>();
+builder.Services.AddScoped<IAgentRepository, AgentRepository>();
+
+// SQL Query Loader for centralized SQL management
+builder.Services.AddSingleton<ISqlQueryLoader, SqlQueryLoader>();
 
 // Validation services
 builder.Services.AddScoped<IValidationService, ValidationService>();
 builder.Services.AddScoped<IValidation<CreateTicketRequest>, CreateTicketRequestValidation>();
 builder.Services.AddScoped<IValidation<UpdateTicketStatusRequest>, UpdateTicketStatusRequestValidation>();
 builder.Services.AddScoped<IValidation<AssignTicketRequest>, AssignTicketRequestValidation>();
+builder.Services.AddScoped<IValidation<Guid?>, AgentAssignmentValidation>();
 builder.Services.AddScoped<IValidation<Ticket>, TicketBusinessRuleValidation>();
 builder.Services.AddScoped<IValidation<TicketQueryParameters>, TicketQueryValidation>();
 

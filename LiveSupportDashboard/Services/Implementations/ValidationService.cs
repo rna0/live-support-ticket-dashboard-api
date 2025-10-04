@@ -5,20 +5,12 @@ using LiveSupportDashboard.Services.Interfaces;
 
 namespace LiveSupportDashboard.Services.Implementations
 {
-    public class ValidationService : IValidationService
+    public class ValidationService(IServiceProvider serviceProvider, ITicketRepository ticketRepository)
+        : IValidationService
     {
-        private readonly IServiceProvider _serviceProvider;
-        private readonly ITicketRepository _ticketRepository;
-
-        public ValidationService(IServiceProvider serviceProvider, ITicketRepository ticketRepository)
-        {
-            _serviceProvider = serviceProvider;
-            _ticketRepository = ticketRepository;
-        }
-
         public async Task<ValidationResult> ValidateAsync<T>(T entity, CancellationToken cancellationToken = default)
         {
-            var validator = _serviceProvider.GetService<IValidation<T>>();
+            var validator = serviceProvider.GetService<IValidation<T>>();
 
             if (validator == null)
             {
@@ -31,7 +23,7 @@ namespace LiveSupportDashboard.Services.Implementations
         public async Task<ValidationResult> ValidateTicketOperationAsync(Guid ticketId, string operation,
             CancellationToken cancellationToken = default)
         {
-            var ticket = await _ticketRepository.GetByIdAsync(ticketId, cancellationToken);
+            var ticket = await ticketRepository.GetByIdAsync(ticketId, cancellationToken);
 
             if (ticket == null)
             {
@@ -40,14 +32,13 @@ namespace LiveSupportDashboard.Services.Implementations
 
             return operation.ToLowerInvariant() switch
             {
-                "status_update" => await ValidateStatusUpdateOperation(ticket, cancellationToken),
-                "assignment" => await ValidateAssignmentOperation(ticket, cancellationToken),
+                "status_update" => await ValidateStatusUpdateOperation(ticket),
+                "assignment" => await ValidateAssignmentOperation(ticket),
                 _ => ValidationResult.Success()
             };
         }
 
-        private async Task<ValidationResult> ValidateStatusUpdateOperation(Ticket ticket,
-            CancellationToken cancellationToken)
+        private Task<ValidationResult> ValidateStatusUpdateOperation(Ticket ticket)
         {
             var errors = new List<ValidationError>();
 
@@ -57,11 +48,10 @@ namespace LiveSupportDashboard.Services.Implementations
                 errors.Add(new ValidationError("Status", "Cannot modify resolved tickets", "TICKET_RESOLVED"));
             }
 
-            return errors.Any() ? ValidationResult.Failure(errors) : ValidationResult.Success();
+            return Task.FromResult(errors.Count != 0 ? ValidationResult.Failure(errors) : ValidationResult.Success());
         }
 
-        private async Task<ValidationResult> ValidateAssignmentOperation(Ticket ticket,
-            CancellationToken cancellationToken)
+        private Task<ValidationResult> ValidateAssignmentOperation(Ticket ticket)
         {
             var errors = new List<ValidationError>();
 
@@ -71,7 +61,7 @@ namespace LiveSupportDashboard.Services.Implementations
                 errors.Add(new ValidationError("Assignment", "Cannot assign resolved tickets", "TICKET_RESOLVED"));
             }
 
-            return errors.Any() ? ValidationResult.Failure(errors) : ValidationResult.Success();
+            return Task.FromResult(errors.Count != 0 ? ValidationResult.Failure(errors) : ValidationResult.Success());
         }
     }
 }

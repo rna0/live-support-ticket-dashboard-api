@@ -1,18 +1,10 @@
 ﻿using LiveSupportDashboard.Domain;
 using LiveSupportDashboard.Domain.Enums;
-using LiveSupportDashboard.Infrastructure;
 
 namespace LiveSupportDashboard.Services.Validations
 {
     public class TicketBusinessRuleValidation : BaseValidation<Ticket>
     {
-        private readonly ITicketRepository _ticketRepository;
-
-        public TicketBusinessRuleValidation(ITicketRepository ticketRepository)
-        {
-            _ticketRepository = ticketRepository;
-        }
-
         protected override async Task ValidateCore(Ticket ticket, CancellationToken cancellationToken)
         {
             // Business Rule: High and Critical priority tickets must be assigned
@@ -24,28 +16,35 @@ namespace LiveSupportDashboard.Services.Validations
                     "HIGH_PRIORITY_REQUIRES_ASSIGNMENT");
             }
 
-            // Business Rule: Resolved tickets cannot be modified
-            if (ticket.Status == TicketStatus.Resolved)
+            switch (ticket.Status)
             {
-                var timeSinceResolution = DateTime.UtcNow - ticket.UpdatedAt;
-                if (timeSinceResolution.TotalHours < 24)
+                // Business Rule: Resolved tickets cannot be modified
+                case TicketStatus.Resolved:
                 {
-                    // Allow modifications within 24 hours of resolution
-                }
-                else
-                {
-                    AddError(nameof(ticket.Status),
-                        "Cannot modify tickets resolved more than 24 hours ago",
-                        "RESOLVED_TICKET_LOCKED");
-                }
-            }
+                    var timeSinceResolution = DateTime.UtcNow - ticket.UpdatedAt;
+                    if (timeSinceResolution.TotalHours < 24)
+                    {
+                        // Allow modifications within 24 hours of resolution
+                    }
+                    else
+                    {
+                        AddError(nameof(ticket.Status),
+                            "Cannot modify tickets resolved more than 24 hours ago",
+                            "RESOLVED_TICKET_LOCKED");
+                    }
 
-            // Business Rule: InProgress tickets must have an assigned agent
-            if (ticket.Status == TicketStatus.InProgress && !ticket.AssignedAgentId.HasValue)
-            {
-                AddError(nameof(ticket.AssignedAgentId),
-                    "In Progress tickets must have an assigned agent",
-                    "INPROGRESS_REQUIRES_AGENT");
+                    break;
+                }
+                // Business Rule: InProgress tickets must have an assigned agent
+                case TicketStatus.InProgress when !ticket.AssignedAgentId.HasValue:
+                    AddError(nameof(ticket.AssignedAgentId),
+                        "In Progress tickets must have an assigned agent",
+                        "INPROGRESS_REQUIRES_AGENT");
+                    break;
+                case TicketStatus.Open:
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException();
             }
 
             await Task.CompletedTask;

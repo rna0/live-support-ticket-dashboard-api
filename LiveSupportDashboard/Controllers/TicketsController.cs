@@ -15,15 +15,18 @@ public sealed class TicketsController : ControllerBase
     private readonly ITicketRepository _ticketRepository;
     private readonly IValidationService _validationService;
     private readonly INotificationService _notificationService;
+    private readonly IAgentRepository _agentRepository;
 
     public TicketsController(
         ITicketRepository ticketRepository,
         IValidationService validationService,
-        INotificationService notificationService)
+        INotificationService notificationService,
+        IAgentRepository agentRepository)
     {
         _ticketRepository = ticketRepository;
         _validationService = validationService;
         _notificationService = notificationService;
+        _agentRepository = agentRepository;
     }
 
     /// <summary>
@@ -81,6 +84,53 @@ public sealed class TicketsController : ControllerBase
     }
 
     /// <summary>
+    /// Get tickets with history and SLA information (frontend-compatible)
+    /// </summary>
+    [HttpGet("with-history")]
+    [ProducesResponseType(typeof(IReadOnlyList<TicketResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetTicketsWithHistory(
+        [FromQuery] string? status,
+        [FromQuery] string? priority,
+        [FromQuery] string? q,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        // Use validation service for query parameters
+        var queryParams = new TicketQueryParameters
+        {
+            Status = status,
+            Priority = priority,
+            SearchQuery = q,
+            Page = page,
+            PageSize = pageSize
+        };
+
+        var validationResult = await _validationService.ValidateAsync(queryParams, ct);
+        if (!validationResult.IsValid)
+        {
+            var problemDetails = new ValidationProblemDetails();
+            foreach (var error in validationResult.Errors)
+            {
+                problemDetails.Errors.Add(error.Property, new[] { error.Message });
+            }
+
+            return BadRequest(problemDetails);
+        }
+
+        var (items, total) = await _ticketRepository.QueryWithHistoryAsync(status, priority, q, page, pageSize, ct);
+
+        // Add pagination metadata to response headers
+        Response.Headers["X-Total-Count"] = total.ToString();
+        Response.Headers["X-Page"] = page.ToString();
+        Response.Headers["X-Page-Size"] = pageSize.ToString();
+        Response.Headers["X-Total-Pages"] = ((int)Math.Ceiling((double)total / pageSize)).ToString();
+
+        return Ok(items);
+    }
+
+    /// <summary>
     /// Get a specific ticket by ID
     /// </summary>
     /// <param name="id">Ticket ID</param>
@@ -106,6 +156,28 @@ public sealed class TicketsController : ControllerBase
     }
 
     /// <summary>
+    /// Get a specific ticket with history and SLA information (frontend-compatible)
+    /// </summary>
+    [HttpGet("{id:guid}/with-history")]
+    [ProducesResponseType(typeof(TicketResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetTicketWithHistory(Guid id, CancellationToken ct = default)
+    {
+        var ticketResponse = await _ticketRepository.GetTicketWithHistoryAsync(id, ct);
+
+        if (ticketResponse is null)
+        {
+            return NotFound(new ProblemDetails
+            {
+                Title = "Ticket not found",
+                Detail = $"No ticket found with ID: {id}"
+            });
+        }
+
+        return Ok(ticketResponse);
+    }
+
+    /// <summary>
     /// Create a new support ticket
     /// </summary>
     /// <param name="request">Ticket creation request</param>
@@ -128,6 +200,22 @@ public sealed class TicketsController : ControllerBase
             }
 
             return BadRequest(problemDetails);
+        }
+
+        // If the request includes an assigned agent, validate agent assignment separately
+        if (request.AssignedAgentId.HasValue)
+        {
+            var agentValidation = await _validationService.ValidateAsync(request.AssignedAgentId, ct);
+            if (!agentValidation.IsValid)
+            {
+                var problemDetails = new ValidationProblemDetails();
+                foreach (var error in agentValidation.Errors)
+                {
+                    problemDetails.Errors.Add(nameof(request.AssignedAgentId), new[] { error.Message });
+                }
+
+                return BadRequest(problemDetails);
+            }
         }
 
         var ticketId = await _ticketRepository.CreateAsync(request, ct);
@@ -271,8 +359,9 @@ public sealed class TicketsController : ControllerBase
         }
 
         // Notify assignment (assuming agent name is available from agent service)
-        await _notificationService.NotifyTicketAssignedAsync(id, request.AgentId,
-            "Agent Name"); // TODO: Get agent name from agent service
+        var agent = await _agentRepository.GetByIdAsync(request.AgentId, ct);
+        var agentName = agent?.Name ?? "Unknown Agent";
+        await _notificationService.NotifyTicketAssignedAsync(id, request.AgentId, agentName);
 
         // Get updated ticket and notify
         var updatedTicket = await _ticketRepository.GetByIdAsync(id, ct);

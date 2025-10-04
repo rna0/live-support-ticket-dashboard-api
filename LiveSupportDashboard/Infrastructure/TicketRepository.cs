@@ -1,20 +1,17 @@
 ﻿using LiveSupportDashboard.Domain;
 using LiveSupportDashboard.Domain.Contracts;
 using LiveSupportDashboard.Domain.Enums;
+using LiveSupportDashboard.Infrastructure.Services;
 using Npgsql;
 
 namespace LiveSupportDashboard.Infrastructure;
 
-public sealed class TicketRepository(NpgsqlDataSource dataSource) : ITicketRepository
+public sealed class TicketRepository(NpgsqlDataSource dataSource, ISqlQueryLoader sqlQueryLoader)
+    : ITicketRepository
 {
     public async Task<Ticket?> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
-        const string sql = """
-
-                                       SELECT id, title, description, priority, status, assigned_agent_id, created_at, updated_at
-                                       FROM tickets
-                                       WHERE id = @id
-                           """;
+        var sql = await sqlQueryLoader.GetQueryAsync("Ticket", "GetById");
 
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand(sql, conn);
@@ -58,17 +55,11 @@ public sealed class TicketRepository(NpgsqlDataSource dataSource) : ITicketRepos
             : string.Empty;
 
         // Get total count
-        var countSql = $"SELECT COUNT(*) FROM tickets {whereClause}";
+        var countSql = (await sqlQueryLoader.GetQueryAsync("Ticket", "GetCount")).Replace("{whereClause}", whereClause);
 
         // Get paginated data
-        var dataSql = $"""
-
-                                   SELECT id, title, description, priority, status, assigned_agent_id, created_at, updated_at
-                                   FROM tickets
-                                   {whereClause}
-                                   ORDER BY created_at DESC
-                                   LIMIT @limit OFFSET @offset
-                       """;
+        var dataSql =
+            (await sqlQueryLoader.GetQueryAsync("Ticket", "QueryPaginated")).Replace("{whereClause}", whereClause);
 
         await using var conn = await dataSource.OpenConnectionAsync(ct);
 
@@ -97,22 +88,20 @@ public sealed class TicketRepository(NpgsqlDataSource dataSource) : ITicketRepos
 
     public async Task<Guid> CreateAsync(CreateTicketRequest req, CancellationToken ct = default)
     {
-        const string sql = """
-
-                                       INSERT INTO tickets (title, description, priority, status, assigned_agent_id, created_at, updated_at)
-                                       VALUES (@title, @description, @priority, @status, @assignedAgentId, @now, @now)
-                                       RETURNING id
-                           """;
+        var sql = await sqlQueryLoader.GetQueryAsync("Ticket", "Create");
 
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand(sql, conn);
 
         var now = DateTime.UtcNow;
+        var slaDueAt = CalculateSlaDueDate(req.Priority);
+
         cmd.Parameters.AddWithValue("title", req.Title);
         cmd.Parameters.AddWithValue("description", (object?)req.Description ?? DBNull.Value);
         cmd.Parameters.AddWithValue("priority", req.Priority.ToString());
-        cmd.Parameters.AddWithValue("status", TicketStatus.Open.ToString());
+        cmd.Parameters.AddWithValue("status", nameof(TicketStatus.Open));
         cmd.Parameters.AddWithValue("assignedAgentId", (object?)req.AssignedAgentId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("slaDueAt", (object?)slaDueAt ?? DBNull.Value);
         cmd.Parameters.AddWithValue("now", now);
 
         var id = (Guid)(await cmd.ExecuteScalarAsync(ct))!;
@@ -121,12 +110,7 @@ public sealed class TicketRepository(NpgsqlDataSource dataSource) : ITicketRepos
 
     public async Task<bool> UpdateStatusAsync(Guid id, string status, CancellationToken ct = default)
     {
-        const string sql = """
-
-                                       UPDATE tickets
-                                       SET status = @status, updated_at = @now
-                                       WHERE id = @id
-                           """;
+        var sql = await sqlQueryLoader.GetQueryAsync("Ticket", "UpdateStatus");
 
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand(sql, conn);
@@ -141,12 +125,7 @@ public sealed class TicketRepository(NpgsqlDataSource dataSource) : ITicketRepos
 
     public async Task<bool> AssignAsync(Guid id, Guid agentId, CancellationToken ct = default)
     {
-        const string sql = """
-
-                                       UPDATE tickets
-                                       SET assigned_agent_id = @agentId, updated_at = @now
-                                       WHERE id = @id
-                           """;
+        var sql = await sqlQueryLoader.GetQueryAsync("Ticket", "Assign");
 
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand(sql, conn);
@@ -167,7 +146,132 @@ public sealed class TicketRepository(NpgsqlDataSource dataSource) : ITicketRepos
         Priority = Enum.Parse<TicketPriority>(reader.GetString(3)),
         Status = Enum.Parse<TicketStatus>(reader.GetString(4)),
         AssignedAgentId = reader.IsDBNull(5) ? null : reader.GetGuid(5),
-        CreatedAt = reader.GetDateTime(6),
-        UpdatedAt = reader.GetDateTime(7)
+        SlaDueAt = reader.IsDBNull(6) ? null : reader.GetDateTime(6),
+        CreatedAt = reader.GetDateTime(7),
+        UpdatedAt = reader.GetDateTime(8)
     };
+
+    // New methods for frontend compatibility
+    public async Task<IReadOnlyList<TicketHistory>> GetTicketHistoryAsync(Guid ticketId, CancellationToken ct = default)
+    {
+        var sql = await sqlQueryLoader.GetQueryAsync("Ticket", "GetHistory");
+
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("ticketId", ticketId);
+
+        var history = new List<TicketHistory>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            history.Add(new TicketHistory
+            {
+                Id = reader.GetGuid(0).ToString(),
+                Timestamp = reader.GetDateTime(5),
+                Action = reader.GetString(2),
+                Details = reader.GetString(3),
+                Agent = reader.GetString(4)
+            });
+        }
+
+        return history;
+    }
+
+    public async Task<TicketResponse?> GetTicketWithHistoryAsync(Guid id, CancellationToken ct = default)
+    {
+        var sql = await sqlQueryLoader.GetQueryAsync("Ticket", "GetById");
+
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("id", id);
+
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) return null;
+
+        var ticket = MapTicket(reader);
+        var history = await GetTicketHistoryAsync(id, ct);
+
+        return new TicketResponse
+        {
+            Id = ticket.Id,
+            Title = ticket.Title,
+            Description = ticket.Description,
+            Priority = ticket.Priority.ToString(),
+            Status = ticket.Status.ToString(),
+            AssignedAgentId = ticket.AssignedAgentId,
+            CreatedAt = ticket.CreatedAt,
+            UpdatedAt = ticket.UpdatedAt,
+            SlaTimeLeft = CalculateSlaTimeLeft(ticket.SlaDueAt),
+            History = history.Select(h => new TicketHistoryResponse
+            {
+                Id = h.Id,
+                Timestamp = h.Timestamp,
+                Action = h.Action,
+                Details = h.Details,
+                Agent = h.Agent
+            }).ToList()
+        };
+    }
+
+    public async Task<(IReadOnlyList<TicketResponse> Items, int Total)> QueryWithHistoryAsync(
+        string? status, string? priority, string? search, int page, int pageSize, CancellationToken ct = default)
+    {
+        var (tickets, total) = await QueryAsync(status, priority, search, page, pageSize, ct);
+
+        var ticketResponses = new List<TicketResponse>();
+        foreach (var ticket in tickets)
+        {
+            var history = await GetTicketHistoryAsync(ticket.Id, ct);
+            ticketResponses.Add(new TicketResponse
+            {
+                Id = ticket.Id,
+                Title = ticket.Title,
+                Description = ticket.Description,
+                Priority = ticket.Priority.ToString(),
+                Status = ticket.Status.ToString(),
+                AssignedAgentId = ticket.AssignedAgentId,
+                CreatedAt = ticket.CreatedAt,
+                UpdatedAt = ticket.UpdatedAt,
+                SlaTimeLeft = CalculateSlaTimeLeft(ticket.SlaDueAt),
+                History = history.Select(h => new TicketHistoryResponse
+                {
+                    Id = h.Id,
+                    Timestamp = h.Timestamp,
+                    Action = h.Action,
+                    Details = h.Details,
+                    Agent = h.Agent
+                }).ToList()
+            });
+        }
+
+        return (ticketResponses, total);
+    }
+
+    private static string? CalculateSlaTimeLeft(DateTime? slaDueAt)
+    {
+        if (!slaDueAt.HasValue) return null;
+
+        var timeLeft = slaDueAt.Value - DateTime.UtcNow;
+        if (timeLeft.TotalMinutes < 0) return "Overdue";
+
+        if (timeLeft.TotalDays >= 1)
+            return $"{(int)timeLeft.TotalDays}d {timeLeft.Hours}h";
+        else if (timeLeft.TotalHours >= 1)
+            return $"{(int)timeLeft.TotalHours}h {timeLeft.Minutes}m";
+        else
+            return $"{timeLeft.Minutes}m";
+    }
+
+    private static DateTime? CalculateSlaDueDate(TicketPriority priority)
+    {
+        var now = DateTime.UtcNow;
+        return priority switch
+        {
+            TicketPriority.Critical => now.AddHours(4),
+            TicketPriority.High => now.AddHours(8),
+            TicketPriority.Medium => now.AddDays(1),
+            TicketPriority.Low => now.AddDays(3),
+            _ => null
+        };
+    }
 }
