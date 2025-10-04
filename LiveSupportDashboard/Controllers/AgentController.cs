@@ -1,10 +1,14 @@
-﻿using System.Text;
+﻿using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
 using LiveSupportDashboard.Domain;
 using LiveSupportDashboard.Domain.Contracts;
 using LiveSupportDashboard.Domain.Enums;
 using LiveSupportDashboard.Infrastructure;
 using LiveSupportDashboard.Services.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.IdentityModel.Tokens;
 
 namespace LiveSupportDashboard.Controllers;
 
@@ -15,9 +19,119 @@ public sealed class AgentController(
     IAgentRepository agentRepository,
     ITicketRepository ticketRepository,
     IValidationService validationService,
-    INotificationService notificationService)
+    INotificationService notificationService,
+    IConfiguration configuration)
     : ControllerBase
 {
+    /// <summary>
+    /// Agent registration - creates a new agent account
+    /// </summary>
+    /// <param name="request">Registration details</param>
+    /// <param name="ct">Cancellation token</param>
+    /// <returns>Agent login response with token</returns>
+    [HttpPost("register")]
+    [ProducesResponseType(typeof(AgentLoginResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Register([FromBody] AgentRegisterRequest request, CancellationToken ct = default)
+    {
+        // Validate input
+        if (string.IsNullOrWhiteSpace(request.Name) ||
+            string.IsNullOrWhiteSpace(request.Email) ||
+            string.IsNullOrWhiteSpace(request.Password))
+        {
+            return BadRequest(new ValidationProblemDetails
+            {
+                Title = "Invalid registration request",
+                Detail = "Name, email, and password are required"
+            });
+        }
+
+        // Validate email format
+        if (!request.Email.Contains('@'))
+        {
+            return BadRequest(new ValidationProblemDetails
+            {
+                Title = "Invalid email format",
+                Detail = "Please provide a valid email address"
+            });
+        }
+
+        // Validate password strength (minimum 6 characters)
+        if (request.Password.Length < 6)
+        {
+            return BadRequest(new ValidationProblemDetails
+            {
+                Title = "Weak password",
+                Detail = "Password must be at least 6 characters long"
+            });
+        }
+
+        // Check if agent already exists
+        var existingAgent = await agentRepository.GetByEmailAsync(request.Email, ct);
+        if (existingAgent != null)
+        {
+            return Conflict(new ProblemDetails
+            {
+                Title = "Agent already exists",
+                Detail = "An agent with this email address already exists"
+            });
+        }
+
+        // Hash password using BCrypt
+        var passwordHash = BCrypt.Net.BCrypt.HashPassword(request.Password);
+
+        // Create agent
+        var agentId = await agentRepository.CreateAsync(request.Name, request.Email, passwordHash, ct);
+
+        // Get the created agent
+        var agent = await agentRepository.GetByIdAsync(agentId, ct);
+        if (agent == null)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new ProblemDetails
+            {
+                Title = "Registration failed",
+                Detail = "Agent was created but could not be retrieved"
+            });
+        }
+
+        // Generate JWT token
+        var jwtSettings = configuration.GetSection("Jwt");
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["Key"] ?? string.Empty));
+        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        var expiresAt = DateTime.UtcNow.AddHours(8);
+        var claims = new[]
+        {
+            new Claim(JwtRegisteredClaimNames.Sub, agent.Id.ToString()),
+            new Claim(JwtRegisteredClaimNames.Email, agent.Email),
+            new Claim(JwtRegisteredClaimNames.Name, agent.Name),
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+        };
+        var token = new JwtSecurityToken(
+            issuer: jwtSettings["Issuer"],
+            audience: jwtSettings["Audience"],
+            claims: claims,
+            expires: expiresAt,
+            signingCredentials: credentials
+        );
+        var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
+
+        // Notify agent connected
+        await notificationService.NotifyAgentConnectedAsync(agent.Name);
+
+        return CreatedAtAction(
+            nameof(GetAgentStatus),
+            new { id = agent.Id },
+            new AgentLoginResponse
+            {
+                AgentId = agent.Id,
+                Name = agent.Name,
+                Email = agent.Email,
+                Token = tokenString,
+                ExpiresAt = expiresAt
+            });
+    }
+
     /// <summary>
     /// Agent login - simplified authentication (production would use proper auth)
     /// </summary>
@@ -49,15 +163,39 @@ public sealed class AgentController(
             });
         }
 
-        // Simplified password check - in production, use proper password hashing
-        // For demo purposes, we'll accept any password for existing agents
+        // Verify password
+        if (!BCrypt.Net.BCrypt.Verify(request.Password, agent.PasswordHash))
+        {
+            return Unauthorized(new ProblemDetails
+            {
+                Title = "Invalid credentials",
+                Detail = "Agent not found or invalid password"
+            });
+        }
 
         // Update last seen timestamp
         await agentRepository.UpdateLastSeenAsync(agent.Id, ct);
 
-        // Generate a simple JWT-like token (in production, use proper JWT)
-        var token = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{agent.Id}:{DateTime.UtcNow:O}"));
+        // Generate JWT token
+        var jwtSettings = configuration.GetSection("Jwt");
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["Key"] ?? string.Empty));
+        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
         var expiresAt = DateTime.UtcNow.AddHours(8);
+        var claims = new[]
+        {
+            new Claim(JwtRegisteredClaimNames.Sub, agent.Id.ToString()),
+            new Claim(JwtRegisteredClaimNames.Email, agent.Email),
+            new Claim(JwtRegisteredClaimNames.Name, agent.Name),
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+        };
+        var token = new JwtSecurityToken(
+            issuer: jwtSettings["Issuer"],
+            audience: jwtSettings["Audience"],
+            claims: claims,
+            expires: expiresAt,
+            signingCredentials: credentials
+        );
+        var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
 
         // Notify agent connected
         await notificationService.NotifyAgentConnectedAsync(agent.Name);
@@ -67,7 +205,7 @@ public sealed class AgentController(
             AgentId = agent.Id,
             Name = agent.Name,
             Email = agent.Email,
-            Token = token,
+            Token = tokenString,
             ExpiresAt = expiresAt
         });
     }
@@ -79,6 +217,7 @@ public sealed class AgentController(
     /// <param name="ct">Cancellation token</param>
     /// <returns>Agent status including online status and active tickets</returns>
     [HttpGet("{id:guid}/status")]
+    [Authorize]
     [ProducesResponseType(typeof(AgentStatusResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetAgentStatus(Guid id, CancellationToken ct = default)
@@ -118,6 +257,7 @@ public sealed class AgentController(
     /// <param name="ct">Cancellation token</param>
     /// <returns>List of all agents</returns>
     [HttpGet]
+    [Authorize]
     [ProducesResponseType(typeof(IReadOnlyList<Agent>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAllAgents(CancellationToken ct = default)
     {
@@ -133,6 +273,7 @@ public sealed class AgentController(
     /// <param name="ct">Cancellation token</param>
     /// <returns>Created ticket ID</returns>
     [HttpPost("{agentId:guid}/tickets")]
+    [Authorize]
     [ProducesResponseType(StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
@@ -194,6 +335,7 @@ public sealed class AgentController(
     /// <param name="ct">Cancellation token</param>
     /// <returns>No content if successful</returns>
     [HttpPost("{agentId:guid}/assign/{ticketId:guid}")]
+    [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
@@ -278,6 +420,7 @@ public sealed class AgentController(
     /// <param name="ct">Cancellation token</param>
     /// <returns>No content if successful</returns>
     [HttpPost("{id:guid}/heartbeat")]
+    [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdateHeartbeat(Guid id, CancellationToken ct = default)
@@ -302,6 +445,7 @@ public sealed class AgentController(
     /// <param name="ct">Cancellation token</param>
     /// <returns>No content if successful</returns>
     [HttpPost("{id:guid}/logout")]
+    [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Logout(Guid id, CancellationToken ct = default)

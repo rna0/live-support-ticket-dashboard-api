@@ -28,5 +28,10 @@ namespace LiveSupportDashboard.Infrastructure
         /// Update agent's last seen timestamp for online status
         /// </summary>
         Task<bool> UpdateLastSeenAsync(Guid id, CancellationToken ct = default);
+
+        /// <summary>
+        /// Create a new agent
+        /// </summary>
+        Task<Guid> CreateAsync(string name, string email, string passwordHash, CancellationToken ct = default);
     }
 }

@@ -77,12 +77,31 @@ public sealed class AgentRepository(NpgsqlDataSource dataSource, ISqlQueryLoader
         return rowsAffected == 1;
     }
 
+    public async Task<Guid> CreateAsync(string name, string email, string passwordHash, CancellationToken ct = default)
+    {
+        var sql = await sqlQueryLoader.GetQueryAsync("Agent", "Create");
+
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+
+        var agentId = Guid.NewGuid();
+        cmd.Parameters.AddWithValue("id", agentId);
+        cmd.Parameters.AddWithValue("name", name);
+        cmd.Parameters.AddWithValue("email", email);
+        cmd.Parameters.AddWithValue("password_hash", passwordHash);
+        cmd.Parameters.AddWithValue("now", DateTime.UtcNow);
+
+        await cmd.ExecuteNonQueryAsync(ct);
+        return agentId;
+    }
+
     private static Agent MapAgent(NpgsqlDataReader reader) => new()
     {
         Id = reader.GetGuid(0),
         Name = reader.GetString(1),
         Email = reader.GetString(2),
-        CreatedAt = reader.GetDateTime(3),
-        UpdatedAt = reader.GetDateTime(4)
+        PasswordHash = reader.GetString(3),
+        CreatedAt = reader.GetDateTime(4),
+        UpdatedAt = reader.GetDateTime(5)
     };
 }

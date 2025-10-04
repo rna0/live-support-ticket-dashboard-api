@@ -1,4 +1,5 @@
 using System.Net.Mime;
+using System.Text;
 using LiveSupportDashboard.Domain;
 using LiveSupportDashboard.Domain.Contracts;
 using LiveSupportDashboard.Hubs;
@@ -7,7 +8,9 @@ using LiveSupportDashboard.Infrastructure.Services;
 using LiveSupportDashboard.Services.Implementations;
 using LiveSupportDashboard.Services.Interfaces;
 using LiveSupportDashboard.Services.Validations;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -15,21 +18,63 @@ var builder = WebApplication.CreateBuilder(args);
 var connString = builder.Configuration.GetConnectionString("DefaultConnection")
                  ?? throw new InvalidOperationException("Missing connection string 'DefaultConnection'.");
 
-builder.Services.AddNpgsqlDataSource(connString); // pooled data source for ADO.NET
+builder.Services.AddNpgsqlDataSource(connString);
 builder.Services.AddScoped<ITicketRepository, TicketRepository>();
 builder.Services.AddScoped<IAgentRepository, AgentRepository>();
-
-// SQL Query Loader for centralized SQL management
+builder.Services.AddScoped<ISessionRepository, SessionRepository>();
+builder.Services.AddScoped<IMessageRepository, MessageRepository>();
 builder.Services.AddSingleton<ISqlQueryLoader, SqlQueryLoader>();
 
 // Validation services
 builder.Services.AddScoped<IValidationService, ValidationService>();
-builder.Services.AddScoped<IValidation<CreateTicketRequest>, CreateTicketRequestValidation>();
-builder.Services.AddScoped<IValidation<UpdateTicketStatusRequest>, UpdateTicketStatusRequestValidation>();
+builder.Services.AddSingleton<IValidation<CreateTicketRequest>, CreateTicketRequestValidation>();
+builder.Services.AddSingleton<IValidation<UpdateTicketStatusRequest>, UpdateTicketStatusRequestValidation>();
 builder.Services.AddScoped<IValidation<AssignTicketRequest>, AssignTicketRequestValidation>();
 builder.Services.AddScoped<IValidation<Guid?>, AgentAssignmentValidation>();
-builder.Services.AddScoped<IValidation<Ticket>, TicketBusinessRuleValidation>();
-builder.Services.AddScoped<IValidation<TicketQueryParameters>, TicketQueryValidation>();
+builder.Services.AddSingleton<IValidation<Ticket>, TicketBusinessRuleValidation>();
+builder.Services.AddSingleton<IValidation<TicketQueryParameters>, TicketQueryValidation>();
+
+// JWT Authentication
+var jwtSettings = builder.Configuration.GetSection("Jwt");
+var key = Encoding.UTF8.GetBytes(jwtSettings["Key"] ?? throw new InvalidOperationException("JWT Key is missing"));
+
+builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    })
+    .AddJwtBearer(options =>
+    {
+        options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
+        options.SaveToken = true;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtSettings["Issuer"],
+            ValidAudience = jwtSettings["Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(key),
+            ClockSkew = TimeSpan.Zero
+        };
+
+        // Support JWT in SignalR
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/signalr/hubs"))
+                {
+                    context.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            }
+        };
+    });
+
+builder.Services.AddAuthorization();
 
 // SignalR services
 builder.Services.AddSignalR(options =>
@@ -40,7 +85,7 @@ builder.Services.AddSignalR(options =>
 });
 
 // Notification service
-builder.Services.AddScoped<INotificationService, SignalRNotificationService>();
+builder.Services.AddSingleton<INotificationService, SignalRNotificationService>();
 
 builder.Services.AddCors(options =>
 {
@@ -86,6 +131,31 @@ builder.Services.AddSwaggerGen(c =>
         Version = "v1",
         Description = "Backend API for the Live Support Ticket Dashboard",
     });
+
+    // Add JWT Authentication to Swagger
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "JWT Authorization header using the Bearer scheme. Example: \"Authorization: Bearer {token}\"",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer"
+    });
+
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
 });
 
 var app = builder.Build();
@@ -100,10 +170,13 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI(c => { c.SwaggerEndpoint("/swagger/v1/swagger.json", "Live Support Ticket Dashboard API v1"); });
 }
 
-app.MapHealthChecks("/health");
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapHealthChecks("/api/health");
 app.MapControllers();
 
 // SignalR Hub mapping
-app.MapHub<LiveSupportHub>("/hubs/livesupport");
+app.MapHub<LiveSupportHub>("/signalr/hubs");
 
 app.Run();

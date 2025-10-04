@@ -9,8 +9,32 @@ CREATE TABLE IF NOT EXISTS agents (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(200) NOT NULL,
     email VARCHAR(320) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Create sessions table for chat sessions
+CREATE TABLE IF NOT EXISTS sessions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL,
+    assigned_agent_id UUID REFERENCES agents(id) ON DELETE SET NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'closed')),
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_activity_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Create messages table for chat messages
+CREATE TABLE IF NOT EXISTS messages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    sender_id UUID NOT NULL,
+    sender_type VARCHAR(10) NOT NULL CHECK (sender_type IN ('agent', 'user')),
+    text TEXT NOT NULL,
+    attachments JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Create tickets table
@@ -45,6 +69,13 @@ CREATE INDEX IF NOT EXISTS idx_tickets_title_search ON tickets USING gin(to_tsve
 CREATE INDEX IF NOT EXISTS idx_tickets_sla_due ON tickets(sla_due_at);
 CREATE INDEX IF NOT EXISTS idx_ticket_history_ticket_id ON ticket_history(ticket_id);
 CREATE INDEX IF NOT EXISTS idx_ticket_history_created_at ON ticket_history(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_assigned_agent ON sessions(assigned_agent_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+CREATE INDEX IF NOT EXISTS idx_sessions_last_activity ON sessions(last_activity_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id, sender_type);
 
 -- Create updated_at trigger function
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -93,6 +124,9 @@ CREATE TRIGGER update_agents_updated_at BEFORE UPDATE ON agents
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_tickets_updated_at BEFORE UPDATE ON tickets
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_sessions_updated_at BEFORE UPDATE ON sessions
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Create trigger for automatic ticket history

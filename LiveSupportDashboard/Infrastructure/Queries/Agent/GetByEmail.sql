@@ -1,4 +1,3 @@
-﻿SELECT id, name, email, created_at, updated_at
+﻿SELECT id, name, email, password_hash, created_at, updated_at
 FROM agents
 WHERE email = @email
-
