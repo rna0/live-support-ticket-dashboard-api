@@ -7,8 +7,8 @@ namespace LiveSupportDashboard.Services.Interfaces
     {
         Task NotifyTicketCreatedAsync(Ticket ticket);
         Task NotifyTicketUpdatedAsync(Ticket ticket);
-        Task NotifyTicketStatusChangedAsync(int ticketId, TicketStatus oldStatus, TicketStatus newStatus);
-        Task NotifyTicketAssignedAsync(int ticketId, int agentId, string agentName);
+        Task NotifyTicketStatusChangedAsync(Guid ticketId, TicketStatus oldStatus, TicketStatus newStatus);
+        Task NotifyTicketAssignedAsync(Guid ticketId, Guid agentId, string agentName);
         Task NotifyAgentConnectedAsync(string agentName);
         Task NotifyAgentDisconnectedAsync(string agentName);
     }

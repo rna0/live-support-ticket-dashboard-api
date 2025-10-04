@@ -41,7 +41,7 @@ namespace LiveSupportDashboard.Services.Implementations
             }
         }
 
-        public async Task NotifyTicketStatusChangedAsync(int ticketId, TicketStatus oldStatus, TicketStatus newStatus)
+        public async Task NotifyTicketStatusChangedAsync(Guid ticketId, TicketStatus oldStatus, TicketStatus newStatus)
         {
             try
             {
@@ -65,7 +65,7 @@ namespace LiveSupportDashboard.Services.Implementations
             }
         }
 
-        public async Task NotifyTicketAssignedAsync(int ticketId, int agentId, string agentName)
+        public async Task NotifyTicketAssignedAsync(Guid ticketId, Guid agentId, string agentName)
         {
             try
             {
