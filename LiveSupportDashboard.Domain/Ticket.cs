@@ -10,7 +10,7 @@ public sealed class Ticket
     public TicketPriority Priority { get; init; } = TicketPriority.Low;
     public TicketStatus Status { get; init; } = TicketStatus.Open;
     public Guid? AssignedAgentId { get; init; }
-    public DateTime? SlaDueAt { get; init; } // Add SLA tracking
+    public DateTime? SlaDueAt { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 }

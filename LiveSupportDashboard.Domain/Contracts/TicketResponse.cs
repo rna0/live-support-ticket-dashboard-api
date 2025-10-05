@@ -10,7 +10,7 @@ public sealed class TicketResponse
     public Guid? AssignedAgentId { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
-    public string? SlaTimeLeft { get; init; } // e.g., "2h 15m"
+    public string? SlaTimeLeft { get; init; }
     public List<TicketHistoryResponse> History { get; init; } = new();
 }
 

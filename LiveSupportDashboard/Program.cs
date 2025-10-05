@@ -23,6 +23,7 @@ builder.Services.AddScoped<ITicketRepository, TicketRepository>();
 builder.Services.AddScoped<IAgentRepository, AgentRepository>();
 builder.Services.AddScoped<ISessionRepository, SessionRepository>();
 builder.Services.AddScoped<IMessageRepository, MessageRepository>();
+builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 builder.Services.AddSingleton<ISqlQueryLoader, SqlQueryLoader>();
 
 // Validation services
@@ -33,6 +34,9 @@ builder.Services.AddScoped<IValidation<AssignTicketRequest>, AssignTicketRequest
 builder.Services.AddScoped<IValidation<Guid?>, AgentAssignmentValidation>();
 builder.Services.AddSingleton<IValidation<Ticket>, TicketBusinessRuleValidation>();
 builder.Services.AddSingleton<IValidation<TicketQueryParameters>, TicketQueryValidation>();
+
+// Token service
+builder.Services.AddScoped<ITokenService, TokenService>();
 
 // JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("Jwt");

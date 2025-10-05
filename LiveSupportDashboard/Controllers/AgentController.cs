@@ -1,7 +1,6 @@
 ﻿using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using LiveSupportDashboard.Domain;
 using LiveSupportDashboard.Domain.Contracts;
 using LiveSupportDashboard.Domain.Enums;
 using LiveSupportDashboard.Infrastructure;
@@ -20,9 +19,13 @@ public sealed class AgentController(
     ITicketRepository ticketRepository,
     IValidationService validationService,
     INotificationService notificationService,
+    ITokenService tokenService,
+    IRefreshTokenRepository refreshTokenRepository,
     IConfiguration configuration)
     : ControllerBase
 {
+    private static readonly TimeSpan OnlineThreshold = TimeSpan.FromMinutes(5);
+
     /// <summary>
     /// Agent registration - creates a new agent account
     /// </summary>
@@ -35,7 +38,6 @@ public sealed class AgentController(
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Register([FromBody] AgentRegisterRequest request, CancellationToken ct = default)
     {
-        // Validate input
         if (string.IsNullOrWhiteSpace(request.Name) ||
             string.IsNullOrWhiteSpace(request.Email) ||
             string.IsNullOrWhiteSpace(request.Password))
@@ -47,7 +49,6 @@ public sealed class AgentController(
             });
         }
 
-        // Validate email format
         if (!request.Email.Contains('@'))
         {
             return BadRequest(new ValidationProblemDetails
@@ -57,7 +58,6 @@ public sealed class AgentController(
             });
         }
 
-        // Validate password strength (minimum 6 characters)
         if (request.Password.Length < 6)
         {
             return BadRequest(new ValidationProblemDetails
@@ -67,7 +67,6 @@ public sealed class AgentController(
             });
         }
 
-        // Check if agent already exists
         var existingAgent = await agentRepository.GetByEmailAsync(request.Email, ct);
         if (existingAgent != null)
         {
@@ -78,14 +77,10 @@ public sealed class AgentController(
             });
         }
 
-        // Hash password using BCrypt
         var passwordHash = BCrypt.Net.BCrypt.HashPassword(request.Password);
-
-        // Create agent
         var agentId = await agentRepository.CreateAsync(request.Name, request.Email, passwordHash, ct);
-
-        // Get the created agent
         var agent = await agentRepository.GetByIdAsync(agentId, ct);
+
         if (agent == null)
         {
             return StatusCode(StatusCodes.Status500InternalServerError, new ProblemDetails
@@ -95,7 +90,6 @@ public sealed class AgentController(
             });
         }
 
-        // Generate JWT token
         var jwtSettings = configuration.GetSection("Jwt");
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["Key"] ?? string.Empty));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -116,7 +110,10 @@ public sealed class AgentController(
         );
         var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
 
-        // Notify agent connected
+        var refreshToken = await tokenService.CreateRefreshTokenAsync(agent.Id, ct);
+        var refreshTokenLifetimeDays = configuration.GetValue("Jwt:RefreshTokenLifetimeDays", 7);
+        var refreshTokenExpiresAt = DateTime.UtcNow.AddDays(refreshTokenLifetimeDays);
+
         await notificationService.NotifyAgentConnectedAsync(agent.Name);
 
         return CreatedAtAction(
@@ -128,7 +125,9 @@ public sealed class AgentController(
                 Name = agent.Name,
                 Email = agent.Email,
                 Token = tokenString,
-                ExpiresAt = expiresAt
+                ExpiresAt = expiresAt,
+                RefreshToken = refreshToken,
+                RefreshTokenExpiresAt = refreshTokenExpiresAt
             });
     }
 
@@ -154,7 +153,7 @@ public sealed class AgentController(
         }
 
         var agent = await agentRepository.GetByEmailAsync(request.Email, ct);
-        if (agent == null)
+        if (agent == null || !BCrypt.Net.BCrypt.Verify(request.Password, agent.PasswordHash))
         {
             return Unauthorized(new ProblemDetails
             {
@@ -163,20 +162,8 @@ public sealed class AgentController(
             });
         }
 
-        // Verify password
-        if (!BCrypt.Net.BCrypt.Verify(request.Password, agent.PasswordHash))
-        {
-            return Unauthorized(new ProblemDetails
-            {
-                Title = "Invalid credentials",
-                Detail = "Agent not found or invalid password"
-            });
-        }
-
-        // Update last seen timestamp
         await agentRepository.UpdateLastSeenAsync(agent.Id, ct);
 
-        // Generate JWT token
         var jwtSettings = configuration.GetSection("Jwt");
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["Key"] ?? string.Empty));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -197,7 +184,10 @@ public sealed class AgentController(
         );
         var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
 
-        // Notify agent connected
+        var refreshToken = await tokenService.CreateRefreshTokenAsync(agent.Id, ct);
+        var refreshTokenLifetimeDays = configuration.GetValue("Jwt:RefreshTokenLifetimeDays", 7);
+        var refreshTokenExpiresAt = DateTime.UtcNow.AddDays(refreshTokenLifetimeDays);
+
         await notificationService.NotifyAgentConnectedAsync(agent.Name);
 
         return Ok(new AgentLoginResponse
@@ -206,7 +196,9 @@ public sealed class AgentController(
             Name = agent.Name,
             Email = agent.Email,
             Token = tokenString,
-            ExpiresAt = expiresAt
+            ExpiresAt = expiresAt,
+            RefreshToken = refreshToken,
+            RefreshTokenExpiresAt = refreshTokenExpiresAt
         });
     }
 
@@ -232,19 +224,16 @@ public sealed class AgentController(
             });
         }
 
-        // Get active tickets count for this agent
         var (tickets, _) = await ticketRepository.QueryAsync(null, null, null, 1, 1000, ct);
         var activeTicketsCount =
             tickets.Count(t => t.AssignedAgentId == id && t.Status != TicketStatus.Resolved);
 
-        // Consider agent online if last seen within 5 minutes
         var isOnline = DateTime.UtcNow - agent.UpdatedAt < TimeSpan.FromMinutes(5);
 
         return Ok(new AgentStatusResponse
         {
             AgentId = agent.Id,
             Name = agent.Name,
-            Email = agent.Email,
             IsOnline = isOnline,
             LastSeen = agent.UpdatedAt,
             ActiveTicketsCount = activeTicketsCount
@@ -252,17 +241,46 @@ public sealed class AgentController(
     }
 
     /// <summary>
-    /// Get all agents
+    /// Get agents with optional pagination and search
     /// </summary>
+    /// <param name="search">Optional search string to filter by name or email</param>
+    /// <param name="page">Page number (default: 1)</param>
+    /// <param name="pageSize">Number of items per page (default: 20, max: 100)</param>
     /// <param name="ct">Cancellation token</param>
-    /// <returns>List of all agents</returns>
+    /// <returns>Paginated list of agents</returns>
     [HttpGet]
     [Authorize]
-    [ProducesResponseType(typeof(IReadOnlyList<Agent>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetAllAgents(CancellationToken ct = default)
+    [ProducesResponseType(typeof(AgentsPagedResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetAgents(
+        [FromQuery] string? search = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
     {
-        var agents = await agentRepository.GetAllAsync(ct);
-        return Ok(agents);
+        var (agents, totalCount) = await agentRepository.QueryAsync(search, page, pageSize, ct);
+
+        var agentResponses = agents.Select(agent => new AgentResponse
+        {
+            AgentId = agent.Id,
+            Name = agent.Name,
+            IsOnline = DateTime.UtcNow - agent.UpdatedAt < OnlineThreshold,
+            LastSeen = agent.UpdatedAt
+        }).ToList();
+
+        var totalPages = (int)Math.Ceiling((double)totalCount / pageSize);
+
+        var response = new AgentsPagedResponse
+        {
+            Agents = agentResponses,
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = totalCount,
+            TotalPages = totalPages,
+            HasNextPage = page < totalPages,
+            HasPreviousPage = page > 1
+        };
+
+        return Ok(response);
     }
 
     /// <summary>
@@ -300,7 +318,7 @@ public sealed class AgentController(
             var problemDetails = new ValidationProblemDetails();
             foreach (var error in validationResult.Errors)
             {
-                problemDetails.Errors.Add(error.Property, new[] { error.Message });
+                problemDetails.Errors.Add(error.Property, [error.Message]);
             }
 
             return BadRequest(problemDetails);
@@ -363,7 +381,7 @@ public sealed class AgentController(
             var problemDetails = new ValidationProblemDetails();
             foreach (var error in validationResult.Errors)
             {
-                problemDetails.Errors.Add(error.Property, new[] { error.Message });
+                problemDetails.Errors.Add(error.Property, [error.Message]);
             }
 
             return BadRequest(problemDetails);
@@ -376,7 +394,7 @@ public sealed class AgentController(
             var problemDetails = new ValidationProblemDetails();
             foreach (var error in operationValidation.Errors)
             {
-                problemDetails.Errors.Add(error.Property, new[] { error.Message });
+                problemDetails.Errors.Add(error.Property, [error.Message]);
             }
 
             return BadRequest(problemDetails);
@@ -460,9 +478,108 @@ public sealed class AgentController(
             });
         }
 
+        // Revoke all refresh tokens for this agent
+        await tokenService.RevokeAllAgentTokensAsync(id, ct);
+
         // Notify agent disconnected
         await notificationService.NotifyAgentDisconnectedAsync(agent.Name);
 
         return NoContent();
+    }
+
+    /// <summary>
+    /// Refresh access token using refresh token
+    /// </summary>
+    /// <param name="request">Refresh token request</param>
+    /// <param name="ct">Cancellation token</param>
+    /// <returns>New access token and refresh token</returns>
+    [HttpPost("refresh")]
+    [ProducesResponseType(typeof(AgentLoginResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest request,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.RefreshToken))
+        {
+            return BadRequest(new ValidationProblemDetails
+            {
+                Title = "Invalid refresh token request",
+                Detail = "Refresh token is required"
+            });
+        }
+
+        // Validate the refresh token
+        var isValid = await tokenService.ValidateRefreshTokenAsync(request.RefreshToken, ct);
+        if (!isValid)
+        {
+            return Unauthorized(new ProblemDetails
+            {
+                Title = "Invalid refresh token",
+                Detail = "The refresh token is invalid, expired, or has been revoked"
+            });
+        }
+
+        // Get the refresh token details
+        var refreshTokenEntity = await refreshTokenRepository.GetByTokenAsync(request.RefreshToken, ct);
+        if (refreshTokenEntity == null)
+        {
+            return Unauthorized(new ProblemDetails
+            {
+                Title = "Invalid refresh token",
+                Detail = "The refresh token does not exist"
+            });
+        }
+
+        // Get the agent
+        var agent = await agentRepository.GetByIdAsync(refreshTokenEntity.AgentId, ct);
+        if (agent == null)
+        {
+            return Unauthorized(new ProblemDetails
+            {
+                Title = "Agent not found",
+                Detail = "The agent associated with this token no longer exists"
+            });
+        }
+
+        // Revoke the old refresh token
+        await tokenService.RevokeRefreshTokenAsync(request.RefreshToken, ct);
+
+        // Generate new JWT access token
+        var jwtSettings = configuration.GetSection("Jwt");
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["Key"] ?? string.Empty));
+        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        var expiresAt = DateTime.UtcNow.AddHours(8);
+        var claims = new[]
+        {
+            new Claim(JwtRegisteredClaimNames.Sub, agent.Id.ToString()),
+            new Claim(JwtRegisteredClaimNames.Email, agent.Email),
+            new Claim(JwtRegisteredClaimNames.Name, agent.Name),
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+        };
+        var token = new JwtSecurityToken(
+            issuer: jwtSettings["Issuer"],
+            audience: jwtSettings["Audience"],
+            claims: claims,
+            expires: expiresAt,
+            signingCredentials: credentials
+        );
+        var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
+
+        // Generate new refresh token
+        var newRefreshToken = await tokenService.CreateRefreshTokenAsync(agent.Id, ct);
+        var refreshTokenLifetimeDays = configuration.GetValue("Jwt:RefreshTokenLifetimeDays", 7);
+        var refreshTokenExpiresAt = DateTime.UtcNow.AddDays(refreshTokenLifetimeDays);
+
+        return Ok(new AgentLoginResponse
+        {
+            AgentId = agent.Id,
+            Name = agent.Name,
+            Email = agent.Email,
+            Token = tokenString,
+            ExpiresAt = expiresAt,
+            RefreshToken = newRefreshToken,
+            RefreshTokenExpiresAt = refreshTokenExpiresAt
+        });
     }
 }

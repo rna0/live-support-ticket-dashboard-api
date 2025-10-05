@@ -13,6 +13,7 @@ public interface ITicketRepository
     Task<Guid> CreateAsync(CreateTicketRequest req, CancellationToken ct = default);
     Task<bool> UpdateStatusAsync(Guid id, string status, CancellationToken ct = default);
     Task<bool> AssignAsync(Guid id, Guid agentId, CancellationToken ct = default);
+    Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
 
     // Add new methods for frontend compatibility
     Task<IReadOnlyList<TicketHistory>> GetTicketHistoryAsync(Guid ticketId, CancellationToken ct = default);

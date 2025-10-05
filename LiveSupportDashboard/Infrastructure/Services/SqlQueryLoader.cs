@@ -42,12 +42,9 @@ public sealed class SqlQueryLoader : ISqlQueryLoader
         {
             var queryPath = Path.Combine(_baseQueriesPath, category, $"{queryName}.sql");
 
-            if (!File.Exists(queryPath))
-            {
-                throw new FileNotFoundException($"SQL query file not found: {queryPath}");
-            }
-
-            return File.ReadAllText(queryPath);
+            if (File.Exists(queryPath))
+                return File.ReadAllText(queryPath);
+            throw new FileNotFoundException($"SQL query file not found: {queryPath}");
         });
     }
 

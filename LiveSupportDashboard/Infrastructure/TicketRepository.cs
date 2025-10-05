@@ -54,23 +54,17 @@ public sealed class TicketRepository(NpgsqlDataSource dataSource, ISqlQueryLoade
             ? $"WHERE {string.Join(" AND ", whereConditions)}"
             : string.Empty;
 
-        // Get total count
         var countSql = (await sqlQueryLoader.GetQueryAsync("Ticket", "GetCount")).Replace("{whereClause}", whereClause);
-
-        // Get paginated data
-        var dataSql =
-            (await sqlQueryLoader.GetQueryAsync("Ticket", "QueryPaginated")).Replace("{whereClause}", whereClause);
+        var dataSql = (await sqlQueryLoader.GetQueryAsync("Ticket", "QueryPaginated")).Replace("{whereClause}", whereClause);
 
         await using var conn = await dataSource.OpenConnectionAsync(ct);
 
-        // Execute count query
         await using var countCmd = new NpgsqlCommand(countSql, conn);
         foreach (var param in parameters)
             countCmd.Parameters.Add(new NpgsqlParameter(param.ParameterName, param.Value));
 
         var total = Convert.ToInt32(await countCmd.ExecuteScalarAsync(ct));
 
-        // Execute data query
         await using var dataCmd = new NpgsqlCommand(dataSql, conn);
         foreach (var param in parameters)
             dataCmd.Parameters.Add(new NpgsqlParameter(param.ParameterName, param.Value));
@@ -138,6 +132,19 @@ public sealed class TicketRepository(NpgsqlDataSource dataSource, ISqlQueryLoade
         return rowsAffected == 1;
     }
 
+    public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
+    {
+        var sql = await sqlQueryLoader.GetQueryAsync("Ticket", "Delete");
+
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+
+        cmd.Parameters.AddWithValue("id", id);
+
+        var rowsAffected = await cmd.ExecuteNonQueryAsync(ct);
+        return rowsAffected == 1;
+    }
+
     private static Ticket MapTicket(NpgsqlDataReader reader) => new()
     {
         Id = reader.GetGuid(0),
@@ -151,7 +158,6 @@ public sealed class TicketRepository(NpgsqlDataSource dataSource, ISqlQueryLoade
         UpdatedAt = reader.GetDateTime(8)
     };
 
-    // New methods for frontend compatibility
     public async Task<IReadOnlyList<TicketHistory>> GetTicketHistoryAsync(Guid ticketId, CancellationToken ct = default)
     {
         var sql = await sqlQueryLoader.GetQueryAsync("Ticket", "GetHistory");

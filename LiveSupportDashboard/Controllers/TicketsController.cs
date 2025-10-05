@@ -10,25 +10,13 @@ namespace LiveSupportDashboard.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Produces("application/json")]
-public sealed class TicketsController : ControllerBase
+public sealed class TicketsController(
+    ITicketRepository ticketRepository,
+    IValidationService validationService,
+    INotificationService notificationService,
+    IAgentRepository agentRepository)
+    : ControllerBase
 {
-    private readonly ITicketRepository _ticketRepository;
-    private readonly IValidationService _validationService;
-    private readonly INotificationService _notificationService;
-    private readonly IAgentRepository _agentRepository;
-
-    public TicketsController(
-        ITicketRepository ticketRepository,
-        IValidationService validationService,
-        INotificationService notificationService,
-        IAgentRepository agentRepository)
-    {
-        _ticketRepository = ticketRepository;
-        _validationService = validationService;
-        _notificationService = notificationService;
-        _agentRepository = agentRepository;
-    }
-
     /// <summary>
     /// Get tickets with optional filtering and pagination
     /// </summary>
@@ -50,7 +38,6 @@ public sealed class TicketsController : ControllerBase
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
     {
-        // Use validation service for query parameters
         var queryParams = new TicketQueryParameters
         {
             Status = status,
@@ -60,21 +47,20 @@ public sealed class TicketsController : ControllerBase
             PageSize = pageSize
         };
 
-        var validationResult = await _validationService.ValidateAsync(queryParams, ct);
+        var validationResult = await validationService.ValidateAsync(queryParams, ct);
         if (!validationResult.IsValid)
         {
             var problemDetails = new ValidationProblemDetails();
             foreach (var error in validationResult.Errors)
             {
-                problemDetails.Errors.Add(error.Property, new[] { error.Message });
+                problemDetails.Errors.Add(error.Property, [error.Message]);
             }
 
             return BadRequest(problemDetails);
         }
 
-        var (items, total) = await _ticketRepository.QueryAsync(status, priority, q, page, pageSize, ct);
+        var (items, total) = await ticketRepository.QueryAsync(status, priority, q, page, pageSize, ct);
 
-        // Add pagination metadata to response headers
         Response.Headers["X-Total-Count"] = total.ToString();
         Response.Headers["X-Page"] = page.ToString();
         Response.Headers["X-Page-Size"] = pageSize.ToString();
@@ -97,7 +83,6 @@ public sealed class TicketsController : ControllerBase
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
     {
-        // Use validation service for query parameters
         var queryParams = new TicketQueryParameters
         {
             Status = status,
@@ -107,21 +92,20 @@ public sealed class TicketsController : ControllerBase
             PageSize = pageSize
         };
 
-        var validationResult = await _validationService.ValidateAsync(queryParams, ct);
+        var validationResult = await validationService.ValidateAsync(queryParams, ct);
         if (!validationResult.IsValid)
         {
             var problemDetails = new ValidationProblemDetails();
             foreach (var error in validationResult.Errors)
             {
-                problemDetails.Errors.Add(error.Property, new[] { error.Message });
+                problemDetails.Errors.Add(error.Property, [error.Message]);
             }
 
             return BadRequest(problemDetails);
         }
 
-        var (items, total) = await _ticketRepository.QueryWithHistoryAsync(status, priority, q, page, pageSize, ct);
+        var (items, total) = await ticketRepository.QueryWithHistoryAsync(status, priority, q, page, pageSize, ct);
 
-        // Add pagination metadata to response headers
         Response.Headers["X-Total-Count"] = total.ToString();
         Response.Headers["X-Page"] = page.ToString();
         Response.Headers["X-Page-Size"] = pageSize.ToString();
@@ -141,7 +125,7 @@ public sealed class TicketsController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetTicket(Guid id, CancellationToken ct = default)
     {
-        var ticket = await _ticketRepository.GetByIdAsync(id, ct);
+        var ticket = await ticketRepository.GetByIdAsync(id, ct);
 
         if (ticket is null)
         {
@@ -163,7 +147,7 @@ public sealed class TicketsController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetTicketWithHistory(Guid id, CancellationToken ct = default)
     {
-        var ticketResponse = await _ticketRepository.GetTicketWithHistoryAsync(id, ct);
+        var ticketResponse = await ticketRepository.GetTicketWithHistoryAsync(id, ct);
 
         if (ticketResponse is null)
         {
@@ -190,13 +174,13 @@ public sealed class TicketsController : ControllerBase
         CancellationToken ct = default)
     {
         // Use validation service instead of ModelState
-        var validationResult = await _validationService.ValidateAsync(request, ct);
+        var validationResult = await validationService.ValidateAsync(request, ct);
         if (!validationResult.IsValid)
         {
             var problemDetails = new ValidationProblemDetails();
             foreach (var error in validationResult.Errors)
             {
-                problemDetails.Errors.Add(error.Property, new[] { error.Message });
+                problemDetails.Errors.Add(error.Property, [error.Message]);
             }
 
             return BadRequest(problemDetails);
@@ -205,26 +189,26 @@ public sealed class TicketsController : ControllerBase
         // If the request includes an assigned agent, validate agent assignment separately
         if (request.AssignedAgentId.HasValue)
         {
-            var agentValidation = await _validationService.ValidateAsync(request.AssignedAgentId, ct);
+            var agentValidation = await validationService.ValidateAsync(request.AssignedAgentId, ct);
             if (!agentValidation.IsValid)
             {
                 var problemDetails = new ValidationProblemDetails();
                 foreach (var error in agentValidation.Errors)
                 {
-                    problemDetails.Errors.Add(nameof(request.AssignedAgentId), new[] { error.Message });
+                    problemDetails.Errors.Add(nameof(request.AssignedAgentId), [error.Message]);
                 }
 
                 return BadRequest(problemDetails);
             }
         }
 
-        var ticketId = await _ticketRepository.CreateAsync(request, ct);
+        var ticketId = await ticketRepository.CreateAsync(request, ct);
 
         // Get the created ticket for notification
-        var createdTicket = await _ticketRepository.GetByIdAsync(ticketId, ct);
+        var createdTicket = await ticketRepository.GetByIdAsync(ticketId, ct);
         if (createdTicket != null)
         {
-            await _notificationService.NotifyTicketCreatedAsync(createdTicket);
+            await notificationService.NotifyTicketCreatedAsync(createdTicket);
         }
 
         return CreatedAtAction(
@@ -250,20 +234,20 @@ public sealed class TicketsController : ControllerBase
         CancellationToken ct = default)
     {
         // Validate the request
-        var requestValidation = await _validationService.ValidateAsync(request, ct);
+        var requestValidation = await validationService.ValidateAsync(request, ct);
         if (!requestValidation.IsValid)
         {
             var problemDetails = new ValidationProblemDetails();
             foreach (var error in requestValidation.Errors)
             {
-                problemDetails.Errors.Add(error.Property, new[] { error.Message });
+                problemDetails.Errors.Add(error.Property, [error.Message]);
             }
 
             return BadRequest(problemDetails);
         }
 
         // Get current ticket for business rule validation
-        var currentTicket = await _ticketRepository.GetByIdAsync(id, ct);
+        var currentTicket = await ticketRepository.GetByIdAsync(id, ct);
         if (currentTicket == null)
         {
             return NotFound(new ProblemDetails
@@ -274,31 +258,31 @@ public sealed class TicketsController : ControllerBase
         }
 
         // Validate business rules for status update
-        var operationValidation = await _validationService.ValidateTicketOperationAsync(id, "status_update", ct);
+        var operationValidation = await validationService.ValidateTicketOperationAsync(id, "status_update", ct);
         if (!operationValidation.IsValid)
         {
             var problemDetails = new ValidationProblemDetails();
             foreach (var error in operationValidation.Errors)
             {
-                problemDetails.Errors.Add(error.Property, new[] { error.Message });
+                problemDetails.Errors.Add(error.Property, [error.Message]);
             }
 
             return BadRequest(problemDetails);
         }
 
         var oldStatus = currentTicket.Status;
-        var success = await _ticketRepository.UpdateStatusAsync(id, request.Status.ToString(), ct);
+        var success = await ticketRepository.UpdateStatusAsync(id, request.Status.ToString(), ct);
 
         if (success)
         {
             // Notify status change
-            await _notificationService.NotifyTicketStatusChangedAsync(id, oldStatus, request.Status);
+            await notificationService.NotifyTicketStatusChangedAsync(id, oldStatus, request.Status);
 
             // Get updated ticket and notify
-            var updatedTicket = await _ticketRepository.GetByIdAsync(id, ct);
+            var updatedTicket = await ticketRepository.GetByIdAsync(id, ct);
             if (updatedTicket != null)
             {
-                await _notificationService.NotifyTicketUpdatedAsync(updatedTicket);
+                await notificationService.NotifyTicketUpdatedAsync(updatedTicket);
             }
         }
 
@@ -322,32 +306,32 @@ public sealed class TicketsController : ControllerBase
         CancellationToken ct = default)
     {
         // Validate the request
-        var requestValidation = await _validationService.ValidateAsync(request, ct);
+        var requestValidation = await validationService.ValidateAsync(request, ct);
         if (!requestValidation.IsValid)
         {
             var problemDetails = new ValidationProblemDetails();
             foreach (var error in requestValidation.Errors)
             {
-                problemDetails.Errors.Add(error.Property, new[] { error.Message });
+                problemDetails.Errors.Add(error.Property, [error.Message]);
             }
 
             return BadRequest(problemDetails);
         }
 
         // Validate business rules for assignment
-        var operationValidation = await _validationService.ValidateTicketOperationAsync(id, "assignment", ct);
+        var operationValidation = await validationService.ValidateTicketOperationAsync(id, "assignment", ct);
         if (!operationValidation.IsValid)
         {
             var problemDetails = new ValidationProblemDetails();
             foreach (var error in operationValidation.Errors)
             {
-                problemDetails.Errors.Add(error.Property, new[] { error.Message });
+                problemDetails.Errors.Add(error.Property, [error.Message]);
             }
 
             return BadRequest(problemDetails);
         }
 
-        var success = await _ticketRepository.AssignAsync(id, request.AgentId, ct);
+        var success = await ticketRepository.AssignAsync(id, request.AgentId, ct);
 
         if (!success)
         {
@@ -359,15 +343,51 @@ public sealed class TicketsController : ControllerBase
         }
 
         // Notify assignment (assuming agent name is available from agent service)
-        var agent = await _agentRepository.GetByIdAsync(request.AgentId, ct);
+        var agent = await agentRepository.GetByIdAsync(request.AgentId, ct);
         var agentName = agent?.Name ?? "Unknown Agent";
-        await _notificationService.NotifyTicketAssignedAsync(id, request.AgentId, agentName);
+        await notificationService.NotifyTicketAssignedAsync(id, request.AgentId, agentName);
 
         // Get updated ticket and notify
-        var updatedTicket = await _ticketRepository.GetByIdAsync(id, ct);
+        var updatedTicket = await ticketRepository.GetByIdAsync(id, ct);
         if (updatedTicket != null)
         {
-            await _notificationService.NotifyTicketUpdatedAsync(updatedTicket);
+            await notificationService.NotifyTicketUpdatedAsync(updatedTicket);
+        }
+
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Delete a ticket permanently
+    /// </summary>
+    /// <param name="id">Ticket ID</param>
+    /// <param name="ct">Cancellation token</param>
+    /// <returns>No content if successful</returns>
+    [HttpDelete("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteTicket(Guid id, CancellationToken ct = default)
+    {
+        // Check if ticket exists first
+        var ticket = await ticketRepository.GetByIdAsync(id, ct);
+        if (ticket == null)
+        {
+            return NotFound(new ProblemDetails
+            {
+                Title = "Ticket not found",
+                Detail = $"No ticket found with ID: {id}"
+            });
+        }
+
+        var success = await ticketRepository.DeleteAsync(id, ct);
+
+        if (!success)
+        {
+            return NotFound(new ProblemDetails
+            {
+                Title = "Ticket not found",
+                Detail = $"Failed to delete ticket with ID: {id}"
+            });
         }
 
         return NoContent();
