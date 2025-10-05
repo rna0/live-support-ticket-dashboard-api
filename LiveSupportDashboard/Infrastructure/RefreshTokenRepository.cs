@@ -1,7 +1,6 @@
 ﻿using LiveSupportDashboard.Domain;
 using LiveSupportDashboard.Infrastructure.Services;
 using Npgsql;
-using NpgsqlTypes;
 
 namespace LiveSupportDashboard.Infrastructure;
 
@@ -12,10 +11,11 @@ public sealed class RefreshTokenRepository(NpgsqlDataSource dataSource, ISqlQuer
     {
         var sql = await sqlQueryLoader.GetQueryAsync("RefreshToken", "Create");
 
-        await using var cmd = dataSource.CreateCommand(sql);
-        cmd.Parameters.AddWithValue("agentId", agentId);
-        cmd.Parameters.AddWithValue("token", token);
-        cmd.Parameters.Add(new NpgsqlParameter("expiresAt", NpgsqlDbType.TimestampTz) { Value = expiresAt });
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue(agentId);
+        cmd.Parameters.AddWithValue(token);
+        cmd.Parameters.AddWithValue(expiresAt);
 
         var result = await cmd.ExecuteScalarAsync(ct);
         return (Guid)result!;
@@ -25,8 +25,9 @@ public sealed class RefreshTokenRepository(NpgsqlDataSource dataSource, ISqlQuer
     {
         var sql = await sqlQueryLoader.GetQueryAsync("RefreshToken", "GetByToken");
 
-        await using var cmd = dataSource.CreateCommand(sql);
-        cmd.Parameters.AddWithValue("token", token);
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue(token);
 
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct))
@@ -48,8 +49,9 @@ public sealed class RefreshTokenRepository(NpgsqlDataSource dataSource, ISqlQuer
     {
         var sql = await sqlQueryLoader.GetQueryAsync("RefreshToken", "Revoke");
 
-        await using var cmd = dataSource.CreateCommand(sql);
-        cmd.Parameters.AddWithValue("token", token);
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue(token);
 
         await cmd.ExecuteNonQueryAsync(ct);
     }
@@ -58,8 +60,9 @@ public sealed class RefreshTokenRepository(NpgsqlDataSource dataSource, ISqlQuer
     {
         var sql = await sqlQueryLoader.GetQueryAsync("RefreshToken", "RevokeAllByAgentId");
 
-        await using var cmd = dataSource.CreateCommand(sql);
-        cmd.Parameters.AddWithValue("agentId", agentId);
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue(agentId);
 
         await cmd.ExecuteNonQueryAsync(ct);
     }
@@ -68,8 +71,9 @@ public sealed class RefreshTokenRepository(NpgsqlDataSource dataSource, ISqlQuer
     {
         var sql = await sqlQueryLoader.GetQueryAsync("RefreshToken", "IsValid");
 
-        await using var cmd = dataSource.CreateCommand(sql);
-        cmd.Parameters.AddWithValue("token", token);
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue(token);
 
         var result = await cmd.ExecuteScalarAsync(ct);
         return Convert.ToInt32(result) > 0;

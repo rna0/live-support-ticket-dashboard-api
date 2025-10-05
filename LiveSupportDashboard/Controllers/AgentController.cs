@@ -24,7 +24,8 @@ public sealed class AgentController(
     IConfiguration configuration)
     : ControllerBase
 {
-    private static readonly TimeSpan OnlineThreshold = TimeSpan.FromMinutes(5);
+    private TimeSpan OnlineThreshold =>
+        TimeSpan.FromMinutes(configuration.GetValue<int>("Agent:OnlineThresholdMinutes"));
 
     /// <summary>
     /// Agent registration - creates a new agent account
@@ -58,12 +59,13 @@ public sealed class AgentController(
             });
         }
 
-        if (request.Password.Length < 6)
+        var minPasswordLength = configuration.GetValue<int>("Agent:MinPasswordLength");
+        if (request.Password.Length < minPasswordLength)
         {
             return BadRequest(new ValidationProblemDetails
             {
                 Title = "Weak password",
-                Detail = "Password must be at least 6 characters long"
+                Detail = $"Password must be at least {minPasswordLength} characters long"
             });
         }
 
@@ -93,7 +95,8 @@ public sealed class AgentController(
         var jwtSettings = configuration.GetSection("Jwt");
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["Key"] ?? string.Empty));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var expiresAt = DateTime.UtcNow.AddHours(8);
+        var tokenLifetimeHours = configuration.GetValue<int>("Jwt:AccessTokenLifetimeHours");
+        var expiresAt = DateTime.UtcNow.AddHours(tokenLifetimeHours);
         var claims = new[]
         {
             new Claim(JwtRegisteredClaimNames.Sub, agent.Id.ToString()),
@@ -111,7 +114,7 @@ public sealed class AgentController(
         var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
 
         var refreshToken = await tokenService.CreateRefreshTokenAsync(agent.Id, ct);
-        var refreshTokenLifetimeDays = configuration.GetValue("Jwt:RefreshTokenLifetimeDays", 7);
+        var refreshTokenLifetimeDays = configuration.GetValue<int>("Jwt:RefreshTokenLifetimeDays");
         var refreshTokenExpiresAt = DateTime.UtcNow.AddDays(refreshTokenLifetimeDays);
 
         await notificationService.NotifyAgentConnectedAsync(agent.Name);
@@ -167,7 +170,8 @@ public sealed class AgentController(
         var jwtSettings = configuration.GetSection("Jwt");
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["Key"] ?? string.Empty));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var expiresAt = DateTime.UtcNow.AddHours(8);
+        var tokenLifetimeHours = configuration.GetValue<int>("Jwt:AccessTokenLifetimeHours");
+        var expiresAt = DateTime.UtcNow.AddHours(tokenLifetimeHours);
         var claims = new[]
         {
             new Claim(JwtRegisteredClaimNames.Sub, agent.Id.ToString()),
@@ -185,7 +189,7 @@ public sealed class AgentController(
         var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
 
         var refreshToken = await tokenService.CreateRefreshTokenAsync(agent.Id, ct);
-        var refreshTokenLifetimeDays = configuration.GetValue("Jwt:RefreshTokenLifetimeDays", 7);
+        var refreshTokenLifetimeDays = configuration.GetValue<int>("Jwt:RefreshTokenLifetimeDays");
         var refreshTokenExpiresAt = DateTime.UtcNow.AddDays(refreshTokenLifetimeDays);
 
         await notificationService.NotifyAgentConnectedAsync(agent.Name);
@@ -224,11 +228,12 @@ public sealed class AgentController(
             });
         }
 
-        var (tickets, _) = await ticketRepository.QueryAsync(null, null, null, 1, 1000, ct);
+        var maxTicketsForActiveCount = configuration.GetValue<int>("Pagination:MaxTicketsForActiveCount");
+        var (tickets, _) = await ticketRepository.QueryAsync(null, null, null, 1, maxTicketsForActiveCount, ct);
         var activeTicketsCount =
             tickets.Count(t => t.AssignedAgentId == id && t.Status != TicketStatus.Resolved);
 
-        var isOnline = DateTime.UtcNow - agent.UpdatedAt < TimeSpan.FromMinutes(5);
+        var isOnline = DateTime.UtcNow - agent.UpdatedAt < OnlineThreshold;
 
         return Ok(new AgentStatusResponse
         {
@@ -257,6 +262,8 @@ public sealed class AgentController(
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
     {
+        pageSize = pageSize == 20 ? configuration.GetValue<int>("Pagination:DefaultPageSize") : pageSize;
+
         var (agents, totalCount) = await agentRepository.QueryAsync(search, page, pageSize, ct);
 
         var agentResponses = agents.Select(agent => new AgentResponse
@@ -549,7 +556,8 @@ public sealed class AgentController(
         var jwtSettings = configuration.GetSection("Jwt");
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["Key"] ?? string.Empty));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var expiresAt = DateTime.UtcNow.AddHours(8);
+        var tokenLifetimeHours = configuration.GetValue<int>("Jwt:AccessTokenLifetimeHours");
+        var expiresAt = DateTime.UtcNow.AddHours(tokenLifetimeHours);
         var claims = new[]
         {
             new Claim(JwtRegisteredClaimNames.Sub, agent.Id.ToString()),
@@ -568,7 +576,7 @@ public sealed class AgentController(
 
         // Generate new refresh token
         var newRefreshToken = await tokenService.CreateRefreshTokenAsync(agent.Id, ct);
-        var refreshTokenLifetimeDays = configuration.GetValue("Jwt:RefreshTokenLifetimeDays", 7);
+        var refreshTokenLifetimeDays = configuration.GetValue<int>("Jwt:RefreshTokenLifetimeDays");
         var refreshTokenExpiresAt = DateTime.UtcNow.AddDays(refreshTokenLifetimeDays);
 
         return Ok(new AgentLoginResponse

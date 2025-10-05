@@ -14,7 +14,8 @@ public sealed class TicketsController(
     ITicketRepository ticketRepository,
     IValidationService validationService,
     INotificationService notificationService,
-    IAgentRepository agentRepository)
+    IAgentRepository agentRepository,
+    IConfiguration configuration)
     : ControllerBase
 {
     /// <summary>
@@ -35,9 +36,12 @@ public sealed class TicketsController(
         [FromQuery] string? priority,
         [FromQuery] string? q,
         [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
+        [FromQuery] int pageSize = 0,
         CancellationToken ct = default)
     {
+        if (pageSize == 0)
+            pageSize = configuration.GetValue<int>("Pagination:DefaultPageSize");
+
         var queryParams = new TicketQueryParameters
         {
             Status = status,
@@ -80,9 +84,13 @@ public sealed class TicketsController(
         [FromQuery] string? priority,
         [FromQuery] string? q,
         [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
+        [FromQuery] int pageSize = 0,
         CancellationToken ct = default)
     {
+        // Use configuration values for pagination defaults
+        if (pageSize == 0)
+            pageSize = configuration.GetValue<int>("Pagination:DefaultPageSize");
+
         var queryParams = new TicketQueryParameters
         {
             Status = status,

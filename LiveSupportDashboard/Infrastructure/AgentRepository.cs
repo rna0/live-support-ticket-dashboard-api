@@ -4,7 +4,10 @@ using Npgsql;
 
 namespace LiveSupportDashboard.Infrastructure;
 
-public sealed class AgentRepository(NpgsqlDataSource dataSource, ISqlQueryLoader sqlQueryLoader)
+public sealed class AgentRepository(
+    NpgsqlDataSource dataSource,
+    ISqlQueryLoader sqlQueryLoader,
+    IConfiguration configuration)
     : IAgentRepository
 {
     public async Task<bool> ExistsAsync(Guid id, CancellationToken ct = default)
@@ -68,7 +71,8 @@ public sealed class AgentRepository(NpgsqlDataSource dataSource, ISqlQueryLoader
         string? search, int page, int pageSize, CancellationToken ct = default)
     {
         page = Math.Max(1, page);
-        pageSize = Math.Clamp(pageSize, 1, 100);
+        var maxPageSize = configuration.GetValue<int>("Pagination:MaxPageSize");
+        pageSize = Math.Clamp(pageSize, 1, maxPageSize);
 
         var whereConditions = new List<string>();
         var parameters = new List<NpgsqlParameter>();
@@ -84,7 +88,8 @@ public sealed class AgentRepository(NpgsqlDataSource dataSource, ISqlQueryLoader
             : string.Empty;
 
         var countSql = (await sqlQueryLoader.GetQueryAsync("Agent", "GetCount")).Replace("{whereClause}", whereClause);
-        var dataSql = (await sqlQueryLoader.GetQueryAsync("Agent", "QueryPaginated")).Replace("{whereClause}", whereClause);
+        var dataSql =
+            (await sqlQueryLoader.GetQueryAsync("Agent", "QueryPaginated")).Replace("{whereClause}", whereClause);
 
         await using var conn = await dataSource.OpenConnectionAsync(ct);
 
@@ -146,7 +151,7 @@ public sealed class AgentRepository(NpgsqlDataSource dataSource, ISqlQueryLoader
         Id = reader.GetGuid(0),
         Name = reader.GetString(1),
         Email = reader.GetString(2),
-                PasswordHash = reader.IsDBNull(3) ? null : reader.GetString(3),
+        PasswordHash = reader.IsDBNull(3) ? null : reader.GetString(3),
         CreatedAt = reader.GetDateTime(4),
         UpdatedAt = reader.GetDateTime(5)
     };

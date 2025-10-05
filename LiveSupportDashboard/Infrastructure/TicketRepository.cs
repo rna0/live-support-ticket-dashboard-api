@@ -6,7 +6,10 @@ using Npgsql;
 
 namespace LiveSupportDashboard.Infrastructure;
 
-public sealed class TicketRepository(NpgsqlDataSource dataSource, ISqlQueryLoader sqlQueryLoader)
+public sealed class TicketRepository(
+    NpgsqlDataSource dataSource,
+    ISqlQueryLoader sqlQueryLoader,
+    IConfiguration configuration)
     : ITicketRepository
 {
     public async Task<Ticket?> GetByIdAsync(Guid id, CancellationToken ct = default)
@@ -27,7 +30,8 @@ public sealed class TicketRepository(NpgsqlDataSource dataSource, ISqlQueryLoade
         string? status, string? priority, string? search, int page, int pageSize, CancellationToken ct = default)
     {
         page = Math.Max(1, page);
-        pageSize = Math.Clamp(pageSize, 1, 100);
+        var maxPageSize = configuration.GetValue<int>("Pagination:MaxPageSize");
+        pageSize = Math.Clamp(pageSize, 1, maxPageSize);
 
         var whereConditions = new List<string>();
         var parameters = new List<NpgsqlParameter>();
@@ -55,7 +59,8 @@ public sealed class TicketRepository(NpgsqlDataSource dataSource, ISqlQueryLoade
             : string.Empty;
 
         var countSql = (await sqlQueryLoader.GetQueryAsync("Ticket", "GetCount")).Replace("{whereClause}", whereClause);
-        var dataSql = (await sqlQueryLoader.GetQueryAsync("Ticket", "QueryPaginated")).Replace("{whereClause}", whereClause);
+        var dataSql =
+            (await sqlQueryLoader.GetQueryAsync("Ticket", "QueryPaginated")).Replace("{whereClause}", whereClause);
 
         await using var conn = await dataSource.OpenConnectionAsync(ct);
 
@@ -268,15 +273,15 @@ public sealed class TicketRepository(NpgsqlDataSource dataSource, ISqlQueryLoade
             return $"{timeLeft.Minutes}m";
     }
 
-    private static DateTime? CalculateSlaDueDate(TicketPriority priority)
+    private DateTime? CalculateSlaDueDate(TicketPriority priority)
     {
         var now = DateTime.UtcNow;
         return priority switch
         {
-            TicketPriority.Critical => now.AddHours(4),
-            TicketPriority.High => now.AddHours(8),
-            TicketPriority.Medium => now.AddDays(1),
-            TicketPriority.Low => now.AddDays(3),
+            TicketPriority.Critical => now.AddHours(configuration.GetValue<int>("Sla:CriticalTicketHours")),
+            TicketPriority.High => now.AddHours(configuration.GetValue<int>("Sla:HighTicketHours")),
+            TicketPriority.Medium => now.AddDays(configuration.GetValue<int>("Sla:MediumTicketDays")),
+            TicketPriority.Low => now.AddDays(configuration.GetValue<int>("Sla:LowTicketDays")),
             _ => null
         };
     }

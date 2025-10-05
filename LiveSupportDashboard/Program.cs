@@ -84,8 +84,10 @@ builder.Services.AddAuthorization();
 builder.Services.AddSignalR(options =>
 {
     options.EnableDetailedErrors = builder.Environment.IsDevelopment();
-    options.KeepAliveInterval = TimeSpan.FromSeconds(15);
-    options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
+    options.KeepAliveInterval =
+        TimeSpan.FromSeconds(builder.Configuration.GetValue<int>("SignalR:KeepAliveIntervalSeconds"));
+    options.ClientTimeoutInterval =
+        TimeSpan.FromSeconds(builder.Configuration.GetValue<int>("SignalR:ClientTimeoutIntervalSeconds"));
 });
 
 // Notification service
