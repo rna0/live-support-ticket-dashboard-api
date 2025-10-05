@@ -87,7 +87,6 @@ public sealed class TicketsController(
         [FromQuery] int pageSize = 0,
         CancellationToken ct = default)
     {
-        // Use configuration values for pagination defaults
         if (pageSize == 0)
             pageSize = configuration.GetValue<int>("Pagination:DefaultPageSize");
 
@@ -181,7 +180,6 @@ public sealed class TicketsController(
     public async Task<IActionResult> CreateTicket([FromBody] CreateTicketRequest request,
         CancellationToken ct = default)
     {
-        // Use validation service instead of ModelState
         var validationResult = await validationService.ValidateAsync(request, ct);
         if (!validationResult.IsValid)
         {
@@ -194,7 +192,6 @@ public sealed class TicketsController(
             return BadRequest(problemDetails);
         }
 
-        // If the request includes an assigned agent, validate agent assignment separately
         if (request.AssignedAgentId.HasValue)
         {
             var agentValidation = await validationService.ValidateAsync(request.AssignedAgentId, ct);
@@ -212,7 +209,6 @@ public sealed class TicketsController(
 
         var ticketId = await ticketRepository.CreateAsync(request, ct);
 
-        // Get the created ticket for notification
         var createdTicket = await ticketRepository.GetByIdAsync(ticketId, ct);
         if (createdTicket != null)
         {
@@ -241,7 +237,6 @@ public sealed class TicketsController(
         [FromBody] UpdateTicketStatusRequest request,
         CancellationToken ct = default)
     {
-        // Validate the request
         var requestValidation = await validationService.ValidateAsync(request, ct);
         if (!requestValidation.IsValid)
         {
@@ -254,7 +249,6 @@ public sealed class TicketsController(
             return BadRequest(problemDetails);
         }
 
-        // Get current ticket for business rule validation
         var currentTicket = await ticketRepository.GetByIdAsync(id, ct);
         if (currentTicket == null)
         {
@@ -265,7 +259,6 @@ public sealed class TicketsController(
             });
         }
 
-        // Validate business rules for status update
         var operationValidation = await validationService.ValidateTicketOperationAsync(id, "status_update", ct);
         if (!operationValidation.IsValid)
         {
@@ -283,10 +276,8 @@ public sealed class TicketsController(
 
         if (success)
         {
-            // Notify status change
             await notificationService.NotifyTicketStatusChangedAsync(id, oldStatus, request.Status);
 
-            // Get updated ticket and notify
             var updatedTicket = await ticketRepository.GetByIdAsync(id, ct);
             if (updatedTicket != null)
             {
@@ -313,7 +304,6 @@ public sealed class TicketsController(
         [FromBody] AssignTicketRequest request,
         CancellationToken ct = default)
     {
-        // Validate the request
         var requestValidation = await validationService.ValidateAsync(request, ct);
         if (!requestValidation.IsValid)
         {
@@ -326,7 +316,6 @@ public sealed class TicketsController(
             return BadRequest(problemDetails);
         }
 
-        // Validate business rules for assignment
         var operationValidation = await validationService.ValidateTicketOperationAsync(id, "assignment", ct);
         if (!operationValidation.IsValid)
         {
@@ -350,12 +339,10 @@ public sealed class TicketsController(
             });
         }
 
-        // Notify assignment (assuming agent name is available from agent service)
         var agent = await agentRepository.GetByIdAsync(request.AgentId, ct);
         var agentName = agent?.Name ?? "Unknown Agent";
         await notificationService.NotifyTicketAssignedAsync(id, request.AgentId, agentName);
 
-        // Get updated ticket and notify
         var updatedTicket = await ticketRepository.GetByIdAsync(id, ct);
         if (updatedTicket != null)
         {
@@ -376,7 +363,6 @@ public sealed class TicketsController(
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteTicket(Guid id, CancellationToken ct = default)
     {
-        // Check if ticket exists first
         var ticket = await ticketRepository.GetByIdAsync(id, ct);
         if (ticket == null)
         {

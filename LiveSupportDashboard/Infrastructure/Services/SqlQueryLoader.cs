@@ -16,14 +16,9 @@ public sealed class SqlQueryLoader : ISqlQueryLoader
 
     public SqlQueryLoader()
     {
-        // Get the base directory where the application is running
         var assemblyLocation = Assembly.GetExecutingAssembly().Location;
         var assemblyDirectory = Path.GetDirectoryName(assemblyLocation)!;
-
-        // Navigate to the Infrastructure/Queries folder
         _baseQueriesPath = Path.Combine(assemblyDirectory, "Infrastructure", "Queries");
-
-        // If not found in bin folder, try the source folder structure
         if (!Directory.Exists(_baseQueriesPath))
         {
             var sourceRoot = FindSourceRoot(assemblyDirectory);
@@ -76,7 +71,6 @@ public sealed class SqlQueryLoader : ISqlQueryLoader
 
         while (current != null)
         {
-            // Look for Infrastructure/Queries folder or .csproj file to identify source root
             if (Directory.Exists(Path.Combine(current.FullName, "Infrastructure", "Queries")) ||
                 current.GetFiles("*.csproj").Length != 0)
             {

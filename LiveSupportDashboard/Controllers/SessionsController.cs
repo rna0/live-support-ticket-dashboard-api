@@ -109,7 +109,6 @@ public sealed class SessionsController(
             });
         }
 
-        // Check if session exists
         if (!await sessionRepository.ExistsAsync(sessionId, ct))
         {
             return NotFound(new ProblemDetails
@@ -119,7 +118,6 @@ public sealed class SessionsController(
             });
         }
 
-        // Get agent info from JWT claims
         var agentId = User.FindFirst("sub")?.Value ??
                       User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         var agentName = User.FindFirst("name")?.Value ??
@@ -134,14 +132,11 @@ public sealed class SessionsController(
             });
         }
 
-        // Create message in database
         var messageId = await messageRepository.CreateAsync(sessionId, Guid.Parse(agentId),
-            SenderType.Agent.ToString().ToLowerInvariant(), request, ct);
+            nameof(SenderType.Agent).ToLowerInvariant(), request, ct);
 
-        // Update session activity
         await sessionRepository.UpdateLastActivityAsync(sessionId, ct);
 
-        // Get the created message for response
         var message = await messageRepository.GetByIdAsync(messageId, ct);
         if (message == null)
         {
@@ -184,7 +179,6 @@ public sealed class SessionsController(
         if (limit > 100) limit = 100;
         if (limit < 1) limit = 50;
 
-        // Check if session exists
         if (!await sessionRepository.ExistsAsync(sessionId, ct))
         {
             return NotFound(new ProblemDetails
@@ -194,10 +188,8 @@ public sealed class SessionsController(
             });
         }
 
-        // Get messages from database
         var (messages, hasMore) = await messageRepository.GetBySessionIdAsync(sessionId, afterMessageId, limit, ct);
 
-        // Create agent lookup dictionary for sender names
         var agentIds = messages.Where(m => m.SenderType == SenderType.Agent).Select(m => m.SenderId).Distinct()
             .ToList();
         var agentLookup = new Dictionary<Guid, string>();
@@ -220,7 +212,7 @@ public sealed class SessionsController(
                 SenderId = m.SenderId,
                 SenderName = m.SenderType == SenderType.Agent
                     ? agentLookup.GetValueOrDefault(m.SenderId, "Unknown Agent")
-                    : "User", // In production, you'd lookup user names too
+                    : "User",
                 SenderType = m.SenderType,
                 Text = m.Text,
                 Attachments = string.IsNullOrEmpty(m.Attachments)

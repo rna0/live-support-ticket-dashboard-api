@@ -20,13 +20,11 @@ namespace LiveSupportDashboard.Hubs
         {
             try
             {
-                // Validate session ID
                 if (string.IsNullOrWhiteSpace(sessionId))
                 {
                     throw new HubException("Session ID is required");
                 }
 
-                // Get agent info from JWT claims
                 var agentId = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value
                               ?? Context.User?.FindFirst("sub")?.Value;
                 var agentName = Context.User?.FindFirst(ClaimTypes.Name)?.Value
@@ -38,14 +36,12 @@ namespace LiveSupportDashboard.Hubs
                     throw new HubException("Authentication required");
                 }
 
-                // Add connection to session group
                 await Groups.AddToGroupAsync(Context.ConnectionId, sessionId);
 
                 logger.LogInformation(
                     "Agent {AgentId} ({AgentName}) joined session {SessionId} with connection {ConnectionId}",
                     agentId, agentName, sessionId, Context.ConnectionId);
 
-                // Notify other participants that agent joined
                 var notification = new AgentJoinedNotification
                 {
                     SessionId = Guid.Parse(sessionId),

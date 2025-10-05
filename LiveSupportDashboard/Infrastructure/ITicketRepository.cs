@@ -15,7 +15,6 @@ public interface ITicketRepository
     Task<bool> AssignAsync(Guid id, Guid agentId, CancellationToken ct = default);
     Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
 
-    // Add new methods for frontend compatibility
     Task<IReadOnlyList<TicketHistory>> GetTicketHistoryAsync(Guid ticketId, CancellationToken ct = default);
     Task<TicketResponse?> GetTicketWithHistoryAsync(Guid id, CancellationToken ct = default);
 

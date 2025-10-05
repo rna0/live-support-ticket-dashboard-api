@@ -307,7 +307,6 @@ public sealed class AgentController(
         [FromBody] CreateTicketRequest request,
         CancellationToken ct = default)
     {
-        // Verify agent exists
         var agent = await agentRepository.GetByIdAsync(agentId, ct);
         if (agent == null)
         {
@@ -318,7 +317,6 @@ public sealed class AgentController(
             });
         }
 
-        // Validate the ticket request
         var validationResult = await validationService.ValidateAsync(request, ct);
         if (!validationResult.IsValid)
         {
@@ -331,13 +329,10 @@ public sealed class AgentController(
             return BadRequest(problemDetails);
         }
 
-        // Create the ticket
         var ticketId = await ticketRepository.CreateAsync(request, ct);
 
-        // Update agent's last seen
         await agentRepository.UpdateLastSeenAsync(agentId, ct);
 
-        // Get the created ticket for notification
         var createdTicket = await ticketRepository.GetByIdAsync(ticketId, ct);
         if (createdTicket != null)
         {
@@ -370,7 +365,6 @@ public sealed class AgentController(
         [FromBody] AssignTicketRequest request,
         CancellationToken ct = default)
     {
-        // Verify performing agent exists
         var performingAgent = await agentRepository.GetByIdAsync(agentId, ct);
         if (performingAgent == null)
         {
@@ -381,7 +375,6 @@ public sealed class AgentController(
             });
         }
 
-        // Validate the assignment request
         var validationResult = await validationService.ValidateAsync(request, ct);
         if (!validationResult.IsValid)
         {
@@ -394,7 +387,6 @@ public sealed class AgentController(
             return BadRequest(problemDetails);
         }
 
-        // Validate business rules for assignment
         var operationValidation = await validationService.ValidateTicketOperationAsync(ticketId, "assignment", ct);
         if (!operationValidation.IsValid)
         {
@@ -407,7 +399,6 @@ public sealed class AgentController(
             return BadRequest(problemDetails);
         }
 
-        // Perform the assignment
         var success = await ticketRepository.AssignAsync(ticketId, request.AgentId, ct);
         if (!success)
         {
@@ -418,17 +409,13 @@ public sealed class AgentController(
             });
         }
 
-        // Get assigned agent name for notification
         var assignedAgent = await agentRepository.GetByIdAsync(request.AgentId, ct);
         var assignedAgentName = assignedAgent?.Name ?? "Unknown Agent";
 
-        // Update performing agent's last seen
         await agentRepository.UpdateLastSeenAsync(agentId, ct);
 
-        // Notify assignment
         await notificationService.NotifyTicketAssignedAsync(ticketId, request.AgentId, assignedAgentName);
 
-        // Get updated ticket and notify
         var updatedTicket = await ticketRepository.GetByIdAsync(ticketId, ct);
         if (updatedTicket != null)
         {
