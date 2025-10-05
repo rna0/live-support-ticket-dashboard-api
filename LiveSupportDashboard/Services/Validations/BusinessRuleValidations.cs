@@ -22,7 +22,7 @@ namespace LiveSupportDashboard.Services.Validations
                 case TicketStatus.Resolved:
                 {
                     var timeSinceResolution = DateTime.UtcNow - ticket.UpdatedAt;
-                    if (timeSinceResolution.TotalHours < 24)
+                    if (timeSinceResolution.TotalHours <= 24)
                     {
                         // Allow modifications within 24 hours of resolution
                     }
@@ -41,6 +41,7 @@ namespace LiveSupportDashboard.Services.Validations
                         "In Progress tickets must have an assigned agent",
                         "INPROGRESS_REQUIRES_AGENT");
                     break;
+                case TicketStatus.InProgress:
                 case TicketStatus.Open:
                     break;
                 default:
@@ -68,18 +69,14 @@ namespace LiveSupportDashboard.Services.Validations
                 AddError(nameof(parameters.PageSize), "Page size must be between 1 and 100", "INVALID_PAGE_SIZE");
             }
 
-            // Status validation
-            if (!string.IsNullOrEmpty(parameters.Status) &&
-                !Enum.TryParse<TicketStatus>(parameters.Status, ignoreCase: true, out _))
+            if (!string.IsNullOrEmpty(parameters.Status) && !IsValidEnumName<TicketStatus>(parameters.Status))
             {
                 AddError(nameof(parameters.Status),
                     "Status must be one of: Open, InProgress, Resolved",
                     "INVALID_STATUS_FILTER");
             }
 
-            // Priority validation
-            if (!string.IsNullOrEmpty(parameters.Priority) &&
-                !Enum.TryParse<TicketPriority>(parameters.Priority, ignoreCase: true, out _))
+            if (!string.IsNullOrEmpty(parameters.Priority) && !IsValidEnumName<TicketPriority>(parameters.Priority))
             {
                 AddError(nameof(parameters.Priority),
                     "Priority must be one of: Low, Medium, High, Critical",
@@ -95,6 +92,14 @@ namespace LiveSupportDashboard.Services.Validations
             }
 
             await Task.CompletedTask;
+        }
+
+        private static bool IsValidEnumName<TEnum>(string value) where TEnum : struct, Enum
+        {
+            // Check if the value is a defined enum name (case-insensitive)
+            // This rejects numeric strings like "123" or "999"
+            return Enum.TryParse<TEnum>(value, ignoreCase: true, out var result) &&
+                   Enum.IsDefined(typeof(TEnum), result);
         }
     }
 
