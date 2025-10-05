@@ -1,0 +1,273 @@
+﻿{
+  "testSuites": {
+    "controllers": {
+      "AgentController": {
+        "register": {
+          "scenarios": [
+            {
+              "name": "successful_registration",
+              "input": {
+                "username": "agent.smith",
+                "email": "agent.smith@support.com",
+                "password": "SecurePass123!",
+                "fullName": "Agent Smith"
+              },
+              "expectedOutput": {
+                "status": 201,
+                "response": {
+                  "agentId": "guid",
+                  "username": "agent.smith",
+                  "email": "agent.smith@support.com"
+                }
+              }
+            },
+            {
+              "name": "duplicate_email_registration",
+              "input": {
+                "username": "agent.smith2",
+                "email": "agent.smith@support.com",
+                "password": "SecurePass123!",
+                "fullName": "Agent Smith Two"
+              },
+              "expectedOutput": {
+                "status": 400,
+                "error": "Email already exists"
+              }
+            }
+          ]
+        },
+        "login": {
+          "scenarios": [
+            {
+              "name": "successful_login",
+              "input": {
+                "email": "agent.smith@support.com",
+                "password": "SecurePass123!"
+              },
+              "expectedOutput": {
+                "status": 200,
+                "response": {
+                  "token": "jwt_token",
+                  "refreshToken": "refresh_token",
+                  "expiresIn": 3600
+                }
+              }
+            }
+          ]
+        }
+      },
+      "TicketsController": {
+        "createTicket": {
+          "scenarios": [
+            {
+              "name": "successful_ticket_creation",
+              "input": {
+                "customerId": "cust123",
+                "subject": "Payment Issue",
+                "description": "Unable to process payment",
+                "priority": "HIGH"
+              },
+              "expectedOutput": {
+                "status": 201,
+                "response": {
+                  "ticketId": "guid",
+                  "status": "OPEN",
+                  "createdAt": "2025-10-05T10:00:00Z"
+                }
+              }
+            }
+          ]
+        },
+        "assignTicket": {
+          "scenarios": [
+            {
+              "name": "successful_assignment",
+              "input": {
+                "ticketId": "ticket123",
+                "agentId": "agent123"
+              },
+              "expectedOutput": {
+                "status": 200,
+                "response": {
+                  "ticketId": "ticket123",
+                  "agentId": "agent123",
+                  "status": "ASSIGNED"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "services": {
+      "TokenService": {
+        "generateToken": {
+          "scenarios": [
+            {
+              "name": "generate_valid_token",
+              "input": {
+                "agentId": "agent123",
+                "email": "agent.smith@support.com",
+                "roles": ["support_agent"]
+              },
+              "expectedOutput": {
+                "token": "jwt_token",
+                "expiresIn": 3600
+              }
+            }
+          ]
+        }
+      },
+      "ValidationService": {
+        "validateTicketAssignment": {
+          "scenarios": [
+            {
+              "name": "valid_assignment",
+              "input": {
+                "ticketId": "ticket123",
+                "agentId": "agent123",
+                "currentAgentTickets": 2,
+                "maxTicketsPerAgent": 5
+              },
+              "expectedOutput": {
+                "isValid": true
+              }
+            },
+            {
+              "name": "max_tickets_reached",
+              "input": {
+                "ticketId": "ticket123",
+                "agentId": "agent123",
+                "currentAgentTickets": 5,
+                "maxTicketsPerAgent": 5
+              },
+              "expectedOutput": {
+                "isValid": false,
+                "error": "Agent has reached maximum ticket limit"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "realtime": {
+      "LiveSupportHub": {
+        "sendMessage": {
+          "scenarios": [
+            {
+              "name": "successful_message_broadcast",
+              "input": {
+                "sessionId": "session123",
+                "message": {
+                  "content": "Hello, how can I help?",
+                  "sender": "agent123",
+                  "timestamp": "2025-10-05T10:15:00Z"
+                }
+              },
+              "expectedOutput": {
+                "delivered": true,
+                "recipients": ["client123", "agent123"]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "repositories": {
+      "TicketRepository": {
+        "getTicketHistory": {
+          "scenarios": [
+            {
+              "name": "fetch_complete_history",
+              "input": {
+                "ticketId": "ticket123"
+              },
+              "expectedOutput": {
+                "history": [
+                  {
+                    "timestamp": "2025-10-05T09:00:00Z",
+                    "action": "CREATED",
+                    "performedBy": "system"
+                  },
+                  {
+                    "timestamp": "2025-10-05T09:05:00Z",
+                    "action": "ASSIGNED",
+                    "performedBy": "agent123"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "testDataTemplates": {
+    "Agent": {
+      "id": "string (guid)",
+      "username": "string",
+      "email": "string (email)",
+      "passwordHash": "string",
+      "status": "enum (ONLINE, OFFLINE, BUSY)",
+      "activeTickets": "number",
+      "lastActive": "datetime"
+    },
+    "Ticket": {
+      "id": "string (guid)",
+      "customerId": "string",
+      "subject": "string",
+      "description": "string",
+      "status": "enum (OPEN, ASSIGNED, IN_PROGRESS, RESOLVED, CLOSED)",
+      "priority": "enum (LOW, MEDIUM, HIGH, URGENT)",
+      "assignedAgentId": "string (guid)?",
+      "createdAt": "datetime",
+      "updatedAt": "datetime"
+    },
+    "Session": {
+      "id": "string (guid)",
+      "customerId": "string",
+      "agentId": "string (guid)?",
+      "status": "enum (ACTIVE, ENDED)",
+      "startTime": "datetime",
+      "endTime": "datetime?"
+    }
+  },
+  "validationRules": {
+    "ticket": {
+      "subject": {
+        "minLength": 5,
+        "maxLength": 100,
+        "required": true
+      },
+      "description": {
+        "minLength": 10,
+        "maxLength": 1000,
+        "required": true
+      }
+    },
+    "agent": {
+      "maxActiveTickets": 5,
+      "inactivityTimeout": 300,
+      "passwordRequirements": {
+        "minLength": 8,
+        "requireUppercase": true,
+        "requireLowercase": true,
+        "requireNumbers": true,
+        "requireSpecialChars": true
+      }
+    }
+  },
+  "testEnvironments": {
+    "testing": {
+      "database": {
+        "type": "in-memory",
+        "name": "LiveSupportTest"
+      },
+      "authentication": {
+        "jwtSecret": "test_secret_key",
+        "tokenExpiration": 3600
+      }
+    }
+  }
+}
+
